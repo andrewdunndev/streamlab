@@ -1,0 +1,39 @@
+stages:
+  - build
+
+include:
+  - component: gitlab.com/dunn.dev/pipeline/container-image@4
+    inputs:
+      containerfile: client/Containerfile
+      image_tag: client
+
+# The component has no MR rule and fires on every main pipeline; its rules
+# are restated to add scripts/**.
+build-image:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - client/**/*
+        - scripts/**/*
+      variables:
+        VERSION: $CI_COMMIT_SHORT_SHA
+    - if: $BUILD_CI_IMAGE == "true"
+      variables:
+        VERSION: $CI_COMMIT_SHORT_SHA
+
+# Same builder image and isolation as the component's build job: the full
+# build and asserts, no login, push or signing.
+build-check:
+  stage: build
+  # renovate: datasource=docker depName=quay.io/buildah/stable
+  image: quay.io/buildah/stable:v1.45.1-immutable@sha256:e5a33092657823b0830186ea525054cf4cdeef29b6a44833444c59d86f561f29
+  variables:
+    BUILDAH_ISOLATION: chroot
+    BUILDAH_FORMAT: oci
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - client/**/*
+        - scripts/**/*
+  script:
+    - buildah build --layers -f client/Containerfile -t build-check:mr .

@@ -39,7 +39,6 @@ COPY scripts/assert-client.sh /tmp/assert-client.sh
 RUN sh /tmp/assert-client.sh && rm -f /tmp/assert-client.sh
 
 ARG VERSION=dev
-ARG MOONLIGHT_VERSION
 LABEL org.opencontainers.image.title="streamlab-client" \
       org.opencontainers.image.description="Headless Moonlight client for Wolf stream testing" \
       org.opencontainers.image.source="https://gitlab.com/dunn.dev/streamlab" \
