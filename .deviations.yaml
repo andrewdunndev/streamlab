@@ -1,0 +1,25 @@
+- standard: container-publishing
+  assertion: grep:Containerfile
+  reason: |
+    The client image is built on Fedora, not a UBI runtime base. The
+    H.264, HEVC and AV1 decoders and the VA-API driver with codec support
+    come from RPM Fusion, which has no UBI build, and the Mesa userspace
+    must match what Wolf hosts run. The base is pinned by digest and
+    Renovate bumps it. The image is a test tool, not a service.
+  owner: andrew@dunn.dev
+
+- standard: package-publishing
+  assertion: file-contains:.gitlab-ci.yml
+  reason: |
+    slsa-attest is tag-only and built for binary artifacts. There is no
+    equivalent for an untagged, rolling image lane. The image is
+    cosign-signed by the container-image component, and container-sbom is
+    tag-only too, so it is omitted for the same reason.
+  owner: andrew@dunn.dev
+
+- standard: package-publishing
+  assertion: file-contains:.gitlab-ci.yml:release-create
+  reason: |
+    release-create does not apply: nothing is released. Each build replaces
+    :latest and there is no version line or release page.
+  owner: andrew@dunn.dev
