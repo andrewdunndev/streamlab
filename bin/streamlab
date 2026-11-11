@@ -236,6 +236,11 @@ cmd_run() {
       --video-codec $codec --video-decoder hardware --display-mode fullscreen --no-quit-after" \
       2>"$log" >/dev/null || true
 
+    # The stream was stopped by signal, so the app is still running on the host.
+    remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
+      -v $STATE_DIR/moonlight:/xdg:Z $IMAGE quit $saddr" >/dev/null 2>&1 \
+      || echo "streamlab: run $n: quit on $server failed" >&2
+
     kill "$samplerpid" 2>/dev/null || true
     wait "$samplerpid" 2>/dev/null || true
 
