@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# streamlab: drive a Wolf host and a Moonlight client host over ssh.
+# usage: streamlab guard HOST... | pair ... | run ... | parse LOG
+set -euo pipefail
+
+# Wolf API field names, from the live openapi-schema. Fix here only.
+WOLF_SOCK=/run/wolf/wolf.sock
+JQ_PENDING_LIST='.requests[]'
+JQ_PENDING_IP='.client_ip'
+JQ_PENDING_SECRET='.pair_secret'
+PAIR_BODY_SECRET=pair_secret
+PAIR_BODY_PIN=pin
+
+GATE=/var/usrlocal/bin/wolf-idle-gate.sh
+IMAGE=${STREAMLAB_IMAGE:-registry.gitlab.com/dunn.dev/streamlab/client:latest}
+STATE_DIR=/var/lib/streamlab
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
+
+die() { echo "streamlab: $*" >&2; exit 1; }
+
+remote() { # host cmd...
+  local h=$1
+  shift
+  # shellcheck disable=SC2029
+  ssh "${SSH_OPTS[@]}" "$h" "$@"
+}
+
+guard() {
+  local h
+  [ $# -gt 0 ] || die "guard: no hosts"
+  for h in "$@"; do
+    remote "$h" "sudo -n $GATE idle" >/dev/null 2>&1 \
+      || die "guard: $h is not idle or the gate failed; aborting"
+  done
+}
+
+# Prints the stats and decoder columns for one moonlight stderr log.
+PARSE_COLS='WxH	fps_in	fps_dec	fps_render	host_lat_avg	net_drop_pct	jitter_drop_pct	rtt	decode_ms	queue_ms	render_ms	codec	decoder'
+
+parse() {
+  local log=${1:-}
+  [ -r "$log" ] || die "parse: cannot read '$log'"
+  printf '%s\n' "$PARSE_COLS"
+  awk '
+    function after(label,   i, rest) {
+      i = index($0, label)
+      if (i == 0) return ""
+      rest = substr($0, i + length(label))
+      if (match(rest, /[0-9]+(\.[0-9]+)?/)) return substr(rest, RSTART, RLENGTH)
+      return ""
+    }
+    function hostavg(   i, rest, a) {
+      i = index($0, "min/max/average:")
+      rest = substr($0, i + 16)
+      if (split(rest, a, "/") < 3) return ""
+      if (match(a[3], /[0-9]+(\.[0-9]+)?/)) return substr(a[3], RSTART, RLENGTH)
+      return ""
+    }
+    /Global video stats/ { inb = 1; seen = 1; next }
+    {
+      lc = tolower($0)
+      if ($0 ~ /Renderer .*chosen/ || (lc ~ /(chose|chosen|selected|using)/ && lc ~ /(decoder|renderer|hwaccel)/)) {
+        gsub(/\t/, " ")
+        sub(/\r$/, "")
+        dec = dec (dec == "" ? "" : " | ") $0
+      }
+    }
+    inb && /Video stream:/ {
+      if (match($0, /[0-9]+x[0-9]+/)) wh = substr($0, RSTART, RLENGTH)
+      if (match($0, /Codec: [^)]*/)) codec = substr($0, RSTART + 7, RLENGTH - 7)
+    }
+    inb && /Incoming frame rate from network:/ { fi = after("network:") }
+    inb && /Decoding frame rate:/ { fd = after("rate:") }
+    inb && /Rendering frame rate:/ { fr = after("rate:") }
+    inb && /Host processing latency/ { hl = hostavg() }
+    inb && /Frames dropped by your network connection:/ { nd = after("connection:") }
+    inb && /Frames dropped due to network jitter:/ { jd = after("jitter:") }
+    inb && /Average network latency:/ { rtt = after("latency:") }
+    inb && /Average decoding time:/ { dt = after("time:") }
+    inb && /Average frame queue delay:/ { qd = after("delay:") }
+    inb && /Average rendering time/ { rt = after("latency):") }
+    END {
+      OFS = "\t"
+      print wh, fi, fd, fr, hl, nd, jd, rtt, dt, qd, rt, codec, dec
+      exit seen ? 0 : 2
+    }
+  ' "$log" || { echo "streamlab: parse: no Global video stats in $log" >&2; return 2; }
+}
+
+addr_of() { # client server-addr: the client address as the server sees it
+  remote "$1" "ip -4 route get $2" | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i + 1); exit}}'
+}
+
+pull_image() {
+  remote "$1" "sudo -n podman pull -q $IMAGE" >/dev/null
+}
+
+podman_base() { # prints the common podman run flags
+  echo "sudo -n podman run --rm --network host --device /dev/dri"
+}
+
+cmd_pair() {
+  local server='' client='' saddr=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --server) server=$2; shift 2 ;;
+      --client) client=$2; shift 2 ;;
+      --server-addr) saddr=$2; shift 2 ;;
+      *) die "pair: unknown option $1" ;;
+    esac
+  done
+  [ -n "$server" ] && [ -n "$client" ] && [ -n "$saddr" ] \
+    || die "pair: --server, --client and --server-addr are required"
+  guard "$server" "$client"
+  pull_image "$client"
+
+  local pin caddr
+  pin=$(printf '%04d' $((RANDOM % 10000)))
+  caddr=$(addr_of "$client" "$saddr")
+  [ -n "$caddr" ] || die "pair: cannot determine the client address toward $saddr"
+
+  remote "$client" "sudo -n mkdir -p $STATE_DIR/moonlight"
+  remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
+    -v $STATE_DIR/moonlight:/xdg:Z $IMAGE pair $saddr --pin $pin" >/dev/null 2>&1 &
+  local pairpid=$!
+
+  local secret=''
+  for _ in $(seq 1 30); do
+    secret=$(remote "$server" "sudo -n curl -sf --unix-socket $WOLF_SOCK http://localhost/api/v1/pair/pending" \
+      | jq -r --arg ip "$caddr" "[$JQ_PENDING_LIST | select($JQ_PENDING_IP == \$ip) | $JQ_PENDING_SECRET] | first // empty" \
+      2>/dev/null || true)
+    [ -n "$secret" ] && break
+    sleep 1
+  done
+  if [ -z "$secret" ]; then
+    kill "$pairpid" 2>/dev/null || true
+    die "pair: no pending request from $caddr on the server"
+  fi
+
+  jq -n --arg s "$secret" --arg p "$pin" "{$PAIR_BODY_SECRET: \$s, $PAIR_BODY_PIN: \$p}" \
+    | remote "$server" "sudo -n curl -sf --unix-socket $WOLF_SOCK -X POST -H 'Content-Type: application/json' -d @- http://localhost/api/v1/pair/client" \
+    >/dev/null || { kill "$pairpid" 2>/dev/null || true; die "pair: the server rejected the PIN submission"; }
+
+  wait "$pairpid" || die "pair: moonlight pair exited non-zero"
+  echo "streamlab: paired $client with $server"
+}
+
+# Writes the eglfs KMS config pinning the card that has a connected connector.
+ensure_kms_config() {
+  remote "$1" "sudo -n sh -s" <<EOF || die "no connected connector on $1 (is the dummy plug in?)"
+set -eu
+card=
+for s in /sys/class/drm/card[0-9]*-*/status; do
+  [ -r "\$s" ] || continue
+  if [ "\$(cat "\$s")" = connected ]; then
+    d=\${s%/status}
+    card=\${d##*/}
+    card=\${card%%-*}
+    break
+  fi
+done
+[ -n "\$card" ] || exit 1
+mkdir -p $STATE_DIR
+printf '{"device":"/dev/dri/%s","hwcursor":false,"pbuffers":true,"outputs":[]}\n' "\$card" > $STATE_DIR/kms.json
+EOF
+}
+
+# shellcheck disable=SC2016
+SAMPLER='if command -v nvidia-smi >/dev/null 2>&1; then
+  exec nvidia-smi --query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -lms 1000
+fi
+while :; do
+  for f in /sys/class/drm/card*/device/gpu_busy_percent; do
+    [ -r "$f" ] && { cat "$f"; break; }
+  done
+  sleep 1
+done'
+
+mean_first_field() {
+  awk -F, '$1 ~ /^[ ]*[0-9.]+[ ]*$/ {s += $1; n++} END {if (n) printf "%.1f", s / n}' "$1"
+}
+
+cmd_run() {
+  local server='' saddr='' client='' app='' codec=HEVC res=1920x1080 fps=60
+  local bitrate=20000 secs=30 runs=3 variant=baseline out=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --server) server=$2; shift 2 ;;
+      --server-addr) saddr=$2; shift 2 ;;
+      --client) client=$2; shift 2 ;;
+      --app) app=$2; shift 2 ;;
+      --codec) codec=$2; shift 2 ;;
+      --res) res=$2; shift 2 ;;
+      --fps) fps=$2; shift 2 ;;
+      --bitrate) bitrate=$2; shift 2 ;;
+      --secs) secs=$2; shift 2 ;;
+      --runs) runs=$2; shift 2 ;;
+      --variant) variant=$2; shift 2 ;;
+      --out) out=$2; shift 2 ;;
+      *) die "run: unknown option $1" ;;
+    esac
+  done
+  [ -n "$server" ] && [ -n "$saddr" ] && [ -n "$client" ] && [ -n "$app" ] \
+    || die "run: --server, --server-addr, --client and --app are required"
+  [ -n "$out" ] || out=results/$(date -u +%Y%m%dT%H%M%SZ)-$variant.tsv
+  mkdir -p "$(dirname "$out")" results/logs
+
+  guard "$server" "$client"
+  pull_image "$client"
+  ensure_kms_config "$client"
+
+  local cdi=''
+  if remote "$client" 'test -e /var/run/cdi/nvidia.yaml'; then
+    cdi='--device nvidia.com/gpu=all'
+  fi
+
+  if [ ! -s "$out" ]; then
+    printf 'ts\thost\tvariant\tworkload\trun\tcodec_req\tbitrate_kbps\t%s\tgpu_busy\thot_thread_pct\treverted\n' \
+      "$PARSE_COLS" >"$out"
+  fi
+
+  local n ts log side row gpu
+  for n in $(seq 1 "$runs"); do
+    guard "$server" "$client"
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    log=results/logs/$(date -u +%Y%m%dT%H%M%SZ)-$variant-$n.log
+    side=${log%.log}.gpu
+
+    remote "$server" "timeout -s TERM $((secs + 10)) sh -s" <<<"$SAMPLER" >"$side" 2>/dev/null &
+    local samplerpid=$!
+
+    remote "$client" "timeout -s TERM -k 15 $secs $(podman_base) $cdi \
+      -e QT_QPA_EGLFS_KMS_CONFIG=/kms.json -e XDG_CONFIG_HOME=/xdg \
+      -v $STATE_DIR/kms.json:/kms.json:ro,Z -v $STATE_DIR/moonlight:/xdg:Z \
+      $IMAGE stream $saddr '$app' --resolution $res --fps $fps --bitrate $bitrate \
+      --video-codec $codec --video-decoder hardware --display-mode fullscreen --no-quit-after" \
+      2>"$log" >/dev/null || true
+
+    kill "$samplerpid" 2>/dev/null || true
+    wait "$samplerpid" 2>/dev/null || true
+
+    row=$(parse "$log" | tail -n 1) || echo "streamlab: run $n produced no stats block" >&2
+    row=${row:-$(printf '\t\t\t\t\t\t\t\t\t\t\t\t')}
+    gpu=$(mean_first_field "$side")
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
+      "$ts" "$server" "$variant" "$app" "$n" "$codec" "$bitrate" "$row" "$gpu" >>"$out"
+    echo "streamlab: run $n recorded in $out"
+
+    guard "$server" "$client"
+  done
+}
+
+main() {
+  local sub=${1:-}
+  [ $# -gt 0 ] && shift
+  case $sub in
+    guard) guard "$@" ;;
+    pair) cmd_pair "$@" ;;
+    run) cmd_run "$@" ;;
+    parse) parse "$@" ;;
+    *) echo "usage: streamlab guard HOST... | pair | run | parse LOG" >&2; exit 2 ;;
+  esac
+}
+
+main "$@"

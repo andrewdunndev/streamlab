@@ -1,0 +1,12 @@
+Global video stats
+------------------
+Video stream: 1280x720 30.00 FPS (Codec: H.264)
+Incoming frame rate from network: 29.90 FPS
+Decoding frame rate: 29.90 FPS
+Rendering frame rate: 29.90 FPS
+Frames dropped by your network connection: 12.50%
+Frames dropped due to network jitter: 0.00%
+Average network latency: N/A
+Average decoding time: 4.00 ms
+Average frame queue delay: 0.50 ms
+Average rendering time (including monitor V-sync latency): 16.00 ms
