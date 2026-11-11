@@ -6,23 +6,24 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/dunn.dev)
 
-A reproducible end-to-end test rig for Wolf game-streaming hosts and Moonlight clients.
+A reproducible test rig for [Wolf](https://github.com/games-on-whales/wolf) game streaming
+with Moonlight clients.
 
-## What this is
+We want game streaming that works without issues for a household, with HDR and upstream
+contributions later. The rig measures regressions and settings before they reach anyone
+playing. [METHOD.md](METHOD.md) has the method, including what it does not measure, so
+others can reproduce it.
 
-Two hosts with the same CPU on the same network, one with an AMD GPU and one with an
-NVIDIA GPU, each running [Wolf](https://github.com/games-on-whales/wolf). An HDMI dummy
-plug on each discrete GPU lets either host act as a headless Moonlight client for the
-other. The rig measures regressions and settings before they reach anyone playing.
+## The rig
 
-The method, including what it does not measure, is in [METHOD.md](METHOD.md).
-
-## What is here
+Two hosts on the same network with the same CPU, one with an AMD GPU and one NVIDIA, each
+running Wolf. An HDMI dummy plug on each discrete GPU lets either host act as a headless
+Moonlight client for the other.
 
 - `client/Containerfile`: a pinned Fedora image with moonlight-qt built from source against
   RPM Fusion ffmpeg. The NVIDIA userspace is injected at run time through CDI.
 - `bin/streamlab`: a bash driver run from a workstation over ssh.
-- `scripts/assert-client.sh`: the build-time checks for the client image.
+- `scripts/assert-client.sh`: build-time checks for the client image.
 - `tests/`: parser tests against fixture logs.
 - `results/`: result TSVs, committed per baseline.
 
@@ -51,4 +52,4 @@ CI builds the client image with the `container-image` component from
 
 ## License
 
-MIT. See [LICENSE](LICENSE). moonlight-qt and the RPM Fusion codecs carry their own licenses.
+[MIT](LICENSE). moonlight-qt and the RPM Fusion codecs carry their own licenses.
