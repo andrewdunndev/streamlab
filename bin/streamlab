@@ -119,8 +119,10 @@ cmd_pair() {
   caddr=$(addr_of "$client" "$saddr")
   [ -n "$caddr" ] || die "pair: cannot determine the client address toward $saddr"
 
+  local before
+  before=$(clients_on "$server")
   remote "$client" "sudo -n mkdir -p $STATE_DIR/moonlight"
-  remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
+  remote "$client" "$(podman_base) --name streamlab-pair -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
     -v $STATE_DIR/moonlight:/xdg:Z $IMAGE pair $saddr --pin $pin" >/dev/null 2>&1 &
   local pairpid=$!
 
@@ -141,8 +143,21 @@ cmd_pair() {
     | remote "$server" "sudo -n curl -sf --unix-socket $WOLF_SOCK -X POST -H 'Content-Type: application/json' -d @- http://localhost/api/v1/pair/client" \
     >/dev/null || { kill "$pairpid" 2>/dev/null || true; die "pair: the server rejected the PIN submission"; }
 
-  wait "$pairpid" || die "pair: moonlight pair exited non-zero"
+  # Headless `moonlight pair` never exits after success; the server's client
+  # list is the proof, then the container is stopped.
+  local paired=''
+  for _ in $(seq 1 30); do
+    [ "$(clients_on "$server")" -gt "$before" ] && { paired=1; break; }
+    sleep 1
+  done
+  remote "$client" "sudo -n podman stop -t 5 streamlab-pair" >/dev/null 2>&1 || true
+  wait "$pairpid" 2>/dev/null || true
+  [ -n "$paired" ] || die "pair: the server never listed the new client"
   echo "streamlab: paired $client with $server"
+}
+
+clients_on() { # server: number of paired clients
+  remote "$1" "sudo -n curl -sf --unix-socket $WOLF_SOCK http://localhost/api/v1/clients" | jq '.clients | length'
 }
 
 # Writes the eglfs KMS config pinning the card that has a connected connector.
