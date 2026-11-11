@@ -41,7 +41,7 @@ parse() {
   local log=${1:-}
   [ -r "$log" ] || die "parse: cannot read '$log'"
   printf '%s\n' "$PARSE_COLS"
-  awk '
+  awk -v q="'" '
     function after(label,   i, rest) {
       i = index($0, label)
       if (i == 0) return ""
@@ -56,18 +56,29 @@ parse() {
       if (match(a[3], /[0-9]+(\.[0-9]+)?/)) return substr(a[3], RSTART, RLENGTH)
       return ""
     }
+    BEGIN {
+      fmt["0x1"] = "H.264"; fmt["0x100"] = "HEVC"; fmt["0x200"] = "HEVC-Main10"
+      fmt["0x1000"] = "AV1"; fmt["0x2000"] = "AV1-Main10"
+    }
     /Global video stats/ { inb = 1; seen = 1; next }
-    {
-      lc = tolower($0)
-      if ($0 ~ /Renderer .*chosen/ || (lc ~ /(chose|chosen|selected|using)/ && lc ~ /(decoder|renderer|hwaccel)/)) {
-        gsub(/\t/, " ")
-        sub(/\r$/, "")
-        dec = dec (dec == "" ? "" : " | ") $0
+    /Video stream is [0-9]+x[0-9]+/ {
+      if (match($0, /[0-9]+x[0-9]+/)) wh = substr($0, RSTART, RLENGTH)
+      if (match($0, /format 0x[0-9a-fA-F]+/)) {
+        f = tolower(substr($0, RSTART + 7, RLENGTH - 7))
+        codec = (f in fmt) ? fmt[f] : f
       }
     }
-    inb && /Video stream:/ {
-      if (match($0, /[0-9]+x[0-9]+/)) wh = substr($0, RSTART, RLENGTH)
-      if (match($0, /Codec: [^)]*/)) codec = substr($0, RSTART + 7, RLENGTH - 7)
+    /\] Format .* chosen by get_format/ && impl == "" {
+      if (match($0, /\[[a-z0-9_]+ @/)) impl = substr($0, RSTART + 1, RLENGTH - 3)
+    }
+    /Using .* renderer/ && rend == "" {
+      if (match($0, /Using .* renderer/)) rend = substr($0, RSTART + 6, RLENGTH - 15)
+    }
+    index($0, q " failed to initialize") {
+      if (match($0, q "[^" q "]+" q)) {
+        name = substr($0, RSTART + 1, RLENGTH - 2)
+        if (index("," failed ",", "," name ",") == 0) failed = failed (failed == "" ? "" : ",") name
+      }
     }
     inb && /Incoming frame rate from network:/ { fi = after("network:") }
     inb && /Decoding frame rate:/ { fd = after("rate:") }
@@ -81,6 +92,8 @@ parse() {
     inb && /Average rendering time/ { rt = after("latency):") }
     END {
       OFS = "\t"
+      dec = "impl=" impl " renderer=" rend (failed == "" ? "" : " failed=" failed)
+      if (impl == "" && rend == "") dec = ""
       print wh, fi, fd, fr, hl, nd, jd, rtt, dt, qd, rt, codec, dec
       exit seen ? 0 : 2
     }

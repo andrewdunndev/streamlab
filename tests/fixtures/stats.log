@@ -1,16 +1,19 @@
-00:00:00 - SDL Info (0): Renderer 'DrmRenderer' chosen
-00:00:00 - SDL Info (0): Chose VAAPIRenderer for codec HEVC due to preferred pixel format: 0x2b
-00:00:30 - SDL Info (0):
+00:00:01 - SDL Info (0): Video bitrate: 20000 kbps
+00:00:02 - SDL Info (0): Video stream is 1920x1080x60 (format 0x100)
+00:00:01 - SDL Info (0): 'VAAPI' failed to initialize. It will not be tried again.
+00:00:01 - SDL Info (0): 'VDPAU' failed to initialize. It will not be tried again.
+00:00:01 - SDL Info (0): 'Vulkan (libplacebo)' failed to initialize. It will not be tried again.
+00:00:01 - FFmpeg: [hevc_cuvid @ 0x1fcd6880] Format nv12 chosen by get_format().
+00:00:01 - SDL Info (0): FFmpeg-based video decoder chosen
+00:00:01 - SDL Info (0): Using SDL renderer
 Global video stats
 ------------------
-Video stream: 1920x1080 60.00 FPS (Codec: HEVC)
 Incoming frame rate from network: 59.98 FPS
-Decoding frame rate: 59.97 FPS
-Rendering frame rate: 59.95 FPS
-Host processing latency min/max/average: 1.2/4.8/2.1 ms
-Frames dropped by your network connection: 0.05%
-Frames dropped due to network jitter: 0.10%
-Average network latency: 3 ms (variance: 1 ms)
-Average decoding time: 1.85 ms
-Average frame queue delay: 0.12 ms
-Average rendering time (including monitor V-sync latency): 8.33 ms
+Decoding frame rate: 59.74 FPS
+Rendering frame rate: 59.49 FPS
+Frames dropped by your network connection: 0.00%
+Frames dropped due to network jitter: 0.41%
+Average network latency: 1 ms (variance: 0 ms)
+Average decoding time: 19.38 ms
+Average frame queue delay: 0.53 ms
+Average rendering time (including monitor V-sync latency): 0.78 ms
