@@ -1,0 +1,53 @@
+# Build and runtime stages share one pinned Fedora so the libraries the
+# binary linked against are the ones it runs with.
+ARG FEDORA=quay.io/fedora/fedora:45@sha256:b68e9c913030593d87875f7b6441b3d8a909aa434579a10dc7dea255a8d7d894
+
+FROM ${FEDORA} AS build
+RUN dnf install -y \
+      "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+ && dnf install -y --allowerasing \
+      gcc-c++ make git pkgconf-pkg-config \
+      qt6-qtbase-devel qt6-qtsvg-devel qt6-qtdeclarative-devel \
+      openssl-devel SDL2-devel SDL2_ttf-devel opus-devel \
+      libva-devel libvdpau-devel libdrm-devel pulseaudio-libs-devel alsa-lib-devel \
+      libplacebo-devel vulkan-loader-devel wayland-devel \
+      ffmpeg-devel \
+ && dnf clean all
+
+# renovate: datasource=github-tags depName=moonlight-stream/moonlight-qt
+ARG MOONLIGHT_VERSION=v6.2.0
+RUN git clone --depth 1 --branch "${MOONLIGHT_VERSION}" --recurse-submodules --shallow-submodules \
+      https://github.com/moonlight-stream/moonlight-qt.git /src
+WORKDIR /src
+RUN qmake6 PREFIX=/usr/local moonlight-qt.pro \
+ && make -j"$(nproc)" release \
+ && make install INSTALL_ROOT=/out
+
+FROM ${FEDORA}
+RUN dnf install -y \
+      "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+ && dnf install -y --allowerasing \
+      qt6-qtbase-gui qt6-qtsvg qt6-qtdeclarative \
+      openssl-libs SDL2 SDL2_ttf opus libva libvdpau libdrm libinput libxkbcommon \
+      pulseaudio-libs alsa-lib libplacebo vulkan-loader mesa-libgbm mesa-libEGL \
+      dejavu-sans-fonts \
+      mesa-dri-drivers mesa-vulkan-drivers mesa-va-drivers-freeworld \
+      libva-utils vulkan-tools ffmpeg-libs ffmpeg \
+ && dnf clean all
+COPY --from=build /out/ /
+COPY scripts/assert-client.sh /tmp/assert-client.sh
+RUN sh /tmp/assert-client.sh && rm -f /tmp/assert-client.sh
+
+ARG VERSION=dev
+ARG MOONLIGHT_VERSION
+LABEL org.opencontainers.image.title="streamlab-client" \
+      org.opencontainers.image.description="Headless Moonlight client for Wolf stream testing" \
+      org.opencontainers.image.source="https://gitlab.com/dunn.dev/streamlab" \
+      org.opencontainers.image.url="https://gitlab.com/dunn.dev/streamlab" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="dunn.dev" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.base.name="quay.io/fedora/fedora:45"
+
+ENV SDL_AUDIODRIVER=dummy
+ENTRYPOINT ["moonlight"]
