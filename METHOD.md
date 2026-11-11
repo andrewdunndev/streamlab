@@ -49,8 +49,10 @@ Input-to-photon latency and image quality are out of scope.
 ## Test order
 
 1. Harness proof. Stream Wolf's built-in "Test ball" app for 30 seconds and
-   get a row with real values. Repeat at 5 Mbps as a negative control. The
-   drop or decode fields must move, or the harness measures nothing.
+   get a row with real values. Repeat at 30 fps as a negative control: the
+   frame-rate fields must halve, or the harness measures nothing. A 5 Mbps
+   run is not a control here, since a test pattern streams cleanly at that
+   rate and nothing moves.
 2. Nightly-pull smoke. After pulling new images on a host, run the smoke
    stream. If it fails, roll the pull back before anything else.
 3. Baseline matrix. Codec, resolution and frame rate on each vendor, three

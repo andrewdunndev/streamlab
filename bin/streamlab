@@ -195,7 +195,7 @@ EOF
 
 # shellcheck disable=SC2016
 SAMPLER='if command -v nvidia-smi >/dev/null 2>&1; then
-  exec nvidia-smi --query-gpu=utilization.gpu,utilization.encoder --format=csv,noheader,nounits -lms 1000
+  exec nvidia-smi --query-gpu=utilization.encoder,utilization.gpu --format=csv,noheader,nounits -lms 1000
 fi
 while :; do
   for f in /sys/class/drm/card*/device/gpu_busy_percent; do
@@ -210,7 +210,7 @@ mean_first_field() {
 
 cmd_run() {
   local server='' saddr='' client='' app='' codec=HEVC res=1920x1080 fps=60
-  local bitrate=20000 secs=30 runs=3 variant=baseline out=''
+  local bitrate=20000 secs=30 runs=3 variant=baseline out='' label=''
   while [ $# -gt 0 ]; do
     case $1 in
       --server) server=$2; shift 2 ;;
@@ -225,6 +225,7 @@ cmd_run() {
       --runs) runs=$2; shift 2 ;;
       --variant) variant=$2; shift 2 ;;
       --out) out=$2; shift 2 ;;
+      --label) label=$2; shift 2 ;;
       *) die "run: unknown option $1" ;;
     esac
   done
@@ -276,7 +277,7 @@ cmd_run() {
     row=${row:-$(printf '\t\t\t\t\t\t\t\t\t\t\t\t')}
     gpu=$(mean_first_field "$side")
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
-      "$ts" "$server" "$variant" "$app" "$n" "$codec" "$bitrate" "$row" "$gpu" >>"$out"
+      "$ts" "${label:-$server}" "$variant" "$app" "$n" "$codec" "$bitrate" "$row" "$gpu" >>"$out"
     echo "streamlab: run $n recorded in $out"
 
     guard "$server" "$client"

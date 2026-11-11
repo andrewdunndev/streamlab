@@ -1,0 +1,11 @@
+ts	host	variant	workload	run	codec_req	bitrate_kbps	WxH	fps_in	fps_dec	fps_render	host_lat_avg	net_drop_pct	jitter_drop_pct	rtt	decode_ms	queue_ms	render_ms	codec	decoder	gpu_busy	hot_thread_pct	reverted
+2026-11-11T22:34:15Z	amd-host	baseline	Test ball	1	HEVC	20000	1920x1080	59.99	59.74	59.50		0.00	0.41	1	19.30	0.57	0.79	HEVC	impl=hevc_cuvid renderer=SDL failed=VAAPI,VDPAU,Vulkan (libplacebo)	0.3		
+2026-11-11T22:34:24Z	amd-host	baseline	Test ball	2	HEVC	20000	1920x1080	59.98	59.73	59.49		0.00	0.42	1	19.29	0.53	0.76	HEVC	impl=hevc_cuvid renderer=SDL failed=VAAPI,VDPAU,Vulkan (libplacebo)	0.7		
+2026-11-11T22:34:34Z	amd-host	baseline	Test ball	3	HEVC	20000	1920x1080	59.96	59.71	59.47		0.00	0.41	1	19.27	0.57	0.78	HEVC	impl=hevc_cuvid renderer=SDL failed=VAAPI,VDPAU,Vulkan (libplacebo)	0.0		
+2026-11-11T22:34:45Z	amd-host	ctl-5mbps	Test ball	1	HEVC	5000	1920x1080	59.97	59.72	59.47		0.00	0.41	1	19.30	0.57	0.76	HEVC	impl=hevc_cuvid renderer=SDL failed=VAAPI,VDPAU,Vulkan (libplacebo)	0.9		
+2026-11-11T22:34:57Z	amd-host	ctl-30fps	Test ball	1	HEVC	20000	1920x1080	29.99	29.74	29.74		0.00	0.00	1	35.97	0.55	0.80	HEVC	impl=hevc_cuvid renderer=SDL failed=VAAPI,VDPAU,Vulkan (libplacebo)	0.2		
+2026-11-11T22:35:08Z	nvidia-host	baseline	Test ball	1	HEVC	20000	1920x1080	60.02	60.02	55.10		0.00	2.46	1	0.40	0.03	3.85	HEVC	impl=hevc renderer=VAAPI accelerated	1.2		
+2026-11-11T22:35:17Z	nvidia-host	baseline	Test ball	2	HEVC	20000	1920x1080	60.01	60.01	57.53		0.00	1.24	1	0.40	0.03	3.34	HEVC	impl=hevc renderer=VAAPI accelerated	1.2		
+2026-11-11T22:35:25Z	nvidia-host	baseline	Test ball	3	HEVC	20000	1920x1080	60.02	60.02	57.31		0.00	1.23	1	0.42	0.03	3.14	HEVC	impl=hevc renderer=VAAPI accelerated	1.2		
+2026-11-11T22:35:36Z	nvidia-host	ctl-5mbps	Test ball	1	HEVC	5000	1920x1080	60.00	60.00	57.53		0.00	1.23	1	0.41	0.04	3.43	HEVC	impl=hevc renderer=VAAPI accelerated	1.2		
+2026-11-11T22:35:46Z	nvidia-host	ctl-30fps	Test ball	1	HEVC	20000	1920x1080	30.01	30.01	28.79		0.00	2.44	1	0.54	0.04	4.23	HEVC	impl=hevc renderer=VAAPI accelerated	0.6		
