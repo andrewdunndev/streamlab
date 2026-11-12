@@ -56,7 +56,9 @@ Input-to-photon latency and image quality are out of scope.
 2. Nightly-pull smoke. After pulling new images on a host, run the smoke
    stream. If it fails, roll the pull back before anything else.
 3. Baseline matrix. Codec, resolution and frame rate on each vendor, three
-   runs per cell, committed under `results/`.
+   runs per cell, committed under `results/`. Codecs are the ones the
+   server's GStreamer registers a hardware encoder for; a software-only
+   codec is not a cell.
 4. Setting A/B. One host setting per variant against the baseline, three runs
    each.
 5. Image A/B. Two images of the same component, same settings, same cells.
