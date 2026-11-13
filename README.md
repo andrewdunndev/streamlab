@@ -46,11 +46,11 @@ tests/test-game.sh
 
 ### Per-game compatibility
 
-`streamlab game` drives a Steam game through Wolf the way a television does: a Wolf UI
-stream from the client host, a lobby for a Wolf profile that runs Steam, a
-`steam://rungameid` launch, and focus, GPU load and time to first frame logged on the
-server. The Wolf host also needs `jq` and curl. Profile, app id, executable and Steam
-root are all flags.
+`streamlab game` launches a Steam game through Wolf with no one at the controls: a
+Wolf UI stream from the client host, a lobby for a Wolf profile that runs Steam, and a
+`steam://rungameid` launch. The server logs focus, GPU load and time to first frame.
+The Wolf host also needs `jq` and `curl`. Profile, app id, executable and Steam root
+are flags.
 
 ```sh
 bin/streamlab game run --server HOST_A --server-addr ADDR_A --client HOST_B \
@@ -58,23 +58,24 @@ bin/streamlab game run --server HOST_A --server-addr ADDR_A --client HOST_B \
   --secs 300 --baselayer
 ```
 
-`run` holds a stream, starts the lobby, probes, records a row in `results/game.tsv`,
-then closes the game and stops the lobby. The pieces are available on their own:
+`run` holds a stream, starts the lobby, probes for `--secs` seconds, appends a row to
+`results/game.tsv`, then closes the game and stops the lobby. Each step is also a verb:
 
 | Verb | Does |
 |------|------|
-| `lobby` | start PROFILE's first app in a lobby and join the live session; prints the lobby id. `--image IMG` swaps the runner image, `--env K=V` adds a variable, `--headless [--res WxH]` skips the Moonlight session and the lobby outlives everyone |
+| `lobby` | start PROFILE's first app in a lobby and join the live session; prints the lobby id. `--image IMG` swaps the runner image, `--env K=V` adds a variable. `--headless [--res WxH]` needs no Moonlight session, and the lobby stays up with no one in it |
 | `hold` | start the Wolf UI stream in the background, then the lobby |
 | `probe` | wait for Big Picture, launch `--appid`, log focus every `--interval` seconds |
 | `diag` | launch `--appid`, wait for `--exe`, dump why it has no focusable window |
 | `exec` | run `-- CMD` as the Steam user inside Steam's session environment |
-| `close` | wait up to `--exe-wait` (600) seconds for `--exe`, let it run `--settle` (60), TERM it, wait for it to exit and for the cloud upload |
+| `close` | wait up to `--exe-wait` (600) seconds for `--exe`, let it run `--settle` (60) seconds, TERM it, wait for it to exit, then `--upload-wait` (30) seconds for the cloud upload |
 | `stop` | close the game, stop `--lobby`, release the stream and client |
 
-`--baselayer` is opt-in: when Big Picture holds focus and the game's window exists, it
-sets `GAMESCOPECTRL_BASELAYER_APPID` to the app id. `stop` and `run` refuse to stop a
-lobby without `--exe`, so the game always closes cleanly first; `--force` overrides. `run --headless` needs no `--client` or `--server-addr`.
-Run state (`hold.pid`, the stream log) goes under `$STREAMLAB_STATE`, default
+With `--baselayer`, when Big Picture holds focus and the game's window exists, the
+probe sets `GAMESCOPECTRL_BASELAYER_APPID` to the app id. `stop` and `run` refuse to
+stop a lobby without `--exe`, so the game is closed before its lobby stops; `--force`
+overrides. `run --headless` needs no `--client` or `--server-addr`. Run state
+(`hold.pid`, the stream log) goes under `$STREAMLAB_STATE`, default
 `$TMPDIR/streamlab-game`.
 
 ## Build and release

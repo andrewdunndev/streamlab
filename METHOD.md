@@ -72,24 +72,25 @@ hosts.
 
 ## Tier 1: per-game compatibility
 
-Does a game run through the stack a household uses? Per game, per vendor,
-from a cold launch through the TV path: a Wolf UI stream, a lobby for the
-Steam profile, and a `steam://rungameid` launch with no one at the controls.
-`streamlab game run` records one row in `results/game.tsv`:
+We want to know whether a game starts with no one at the controls, per game
+and per vendor. `streamlab game run` holds a Wolf UI stream, starts a lobby
+for the Steam profile, launches the game with `steam://rungameid` and
+samples it every `--interval` seconds. It appends one row to
+`results/game.tsv` and saves a screenshot under `results/logs/`:
 
-- Reaches the title screen: the game's app id becomes gamescope's focused
-  app, and a screenshot shows the title.
-- Focus: whether the game came to the front on its own. If Big Picture
-  keeps focus while the game runs, `--baselayer` sets
-  `GAMESCOPECTRL_BASELAYER_APPID` to the game's app id and the row says
-  `forced=yes`. Record forced focus as a finding, not a pass.
-- GPU busy: the maximum utilisation sampled while it ran, to tell a
-  rendering game from a window that is mapped but idle.
-- Time to first frame: seconds from launch until the game is focused,
-  including the first-launch shader build. Samples are `--interval`
-  apart, so the figure is that coarse.
+- `focused`: whether the game's app id is gamescope's focused app at the
+  last sample. The screenshot shows what was on screen then.
+- `forced`: whether `--baselayer` had to bring the game to the front. With
+  that flag, if Big Picture keeps focus while the game's window exists, the
+  probe sets `GAMESCOPECTRL_BASELAYER_APPID` to the game's app id. A
+  `forced=yes` row is a finding: the game did not take focus on its own.
+- `gpu_max`: the highest GPU utilisation sampled. A low figure means the
+  window is mapped but the game is not rendering.
+- `ttff_s`: seconds from launch until the game first has focus, including
+  the first-launch shader build. It is a multiple of `--interval`.
 
-`streamlab game diag` dumps why a running game has no focusable window.
+`streamlab game diag` launches a game and dumps why it has no focusable
+window.
 
 ## Tier 2: HDR
 
