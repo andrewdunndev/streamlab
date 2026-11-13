@@ -55,7 +55,7 @@ are flags.
 ```sh
 bin/streamlab game run --server HOST_A --server-addr ADDR_A --client HOST_B \
   --profile PROFILE --appid APPID --exe GAME.exe --steam-root STEAM_DIR \
-  --secs 300 --baselayer
+  --secs 300
 ```
 
 `run` holds a stream, starts the lobby, probes for `--secs` seconds, appends a row to
