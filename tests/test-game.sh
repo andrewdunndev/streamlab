@@ -197,7 +197,7 @@ mkdir -p "$work/root/logs"
 echo "1465360 upload done" >"$work/root/logs/cloud_log.txt"
 FAKE_MODE=live game close --server s --exe Game.exe --appid 1465360 --steam-root "$work/root" >"$work/out" 2>&1
 check close_exit 0 "$?"
-check close_termed '-TERM -f (^|[/\ ])Game\.exe( |$)' "$(cat "$work/fake/signals")"
+check close_termed '-TERM -x -- Game.exe' "$(cat "$work/fake/signals")"
 check close_cloud_log '1465360 upload done' "$(tail -1 "$work/out")"
 check close_soaks_60s 60 "$(grep -x 60 "$work/fake/sleeps" | head -1)"
 
@@ -207,7 +207,7 @@ reset
 FAKE_MODE=live game close --server s --exe Game.exe --appid 1465360 >"$work/out" 2>&1
 check close_waits_for_exe 0 "$?"
 check close_waited_then_termed 'Game.exe up after 10s' "$(grep 'up after' "$work/out")"
-check close_slow_launch_termed '-TERM -f (^|[/\ ])Game\.exe( |$)' "$(cat "$work/fake/signals")"
+check close_slow_launch_termed '-TERM -x -- Game.exe' "$(cat "$work/fake/signals")"
 
 reset
 FAKE_MODE=live game close --server s --exe Game.exe --exe-wait 30 >"$work/out" 2>&1
@@ -215,21 +215,13 @@ check close_never_started_rc 0 "$?"
 check close_never_started_msg 'Game.exe not running after 30s' "$(cat "$work/out")"
 check close_never_started_no_term '' "$(cat "$work/fake/signals" 2>/dev/null)"
 
-# the exe matcher is anchored: a longer name or a suffix does not match
-eval "$(sed -n '/^exe_pat()/,/^}/p' "$bin")"
-pat=
-exe_pat Game.exe
-for line in 'Game.exe' '/opt/x/Game.exe -w' 'Z:\x\Game.exe'; do
-  printf '%s\n' "$line" | grep -Eq -- "$pat"
-  check "exe_pat_matches $line" 0 "$?"
-done
-for line in 'NotGame.exe' 'Game.exe.bak' 'GameXexe' 'steam Game.exe.log'; do
-  printf '%s\n' "$line" | grep -Eq -- "$pat"
-  check "exe_pat_rejects $line" 1 "$?"
-done
-exe_pat 'a.b'
-printf '%s\n' axb | grep -Eq -- "$pat"
-check exe_pat_escapes_dot 1 "$?"
+# the exe matcher is the process name, cut to the 15 characters comm keeps
+eval "$(sed -n '/^exe_comm()/p' "$bin")"
+comm=
+exe_comm Game.exe
+check exe_comm_short Game.exe "$comm"
+exe_comm SnowRunner-Win64-Shipping.exe
+check exe_comm_truncated SnowRunner-Win6 "$comm"
 
 # option validation
 reset

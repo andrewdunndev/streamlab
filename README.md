@@ -68,7 +68,7 @@ bin/streamlab game run --server HOST_A --server-addr ADDR_A --client HOST_B \
 | `probe` | wait for Big Picture, launch `--appid`, log focus every `--interval` seconds |
 | `diag` | launch `--appid`, wait for `--exe`, dump why it has no focusable window |
 | `exec` | run `-- CMD` as the Steam user inside Steam's session environment |
-| `close` | wait up to `--exe-wait` (600) seconds for `--exe`, let it run `--settle` (60) seconds, TERM it, wait for it to exit, then `--upload-wait` (30) seconds for the cloud upload |
+| `close` | wait up to `--exe-wait` (600) seconds for `--exe` (matched by process name, first 15 characters), let it run `--settle` (60) seconds, TERM it, wait for it to exit, then `--upload-wait` (30) seconds for the cloud upload |
 | `stop` | close the game, stop `--lobby`, release the stream and client |
 
 With `--baselayer`, when Big Picture holds focus and the game's window exists, the

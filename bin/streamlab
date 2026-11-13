@@ -293,11 +293,7 @@ shift
 shots=${TMPDIR:-/tmp}
 get() { sudo -n curl -sf --unix-socket "$sock" "http://localhost/api/v1/$1"; }
 post() { sudo -n curl -s --unix-socket "$sock" -X POST -H 'Content-Type: application/json' -d @- "http://localhost/api/v1/$1"; }
-exe_pat() { # exe name -> ERE matching a command line whose program is that name
-  # shellcheck disable=SC2016
-  esc=$(printf '%s' "$1" | sed 's/[][\.*^$()+?{|]/\\&/g')
-  pat="(^|[/\\\\ ])${esc}( |\$)"
-}
+exe_comm() { comm=$(printf %.15s "$1"); }
 steam_container() {
   c=$(sudo -n podman ps --format '{{.Names}}' | grep -m1 '^WolfSteam_') || { echo "no WolfSteam container" >&2; exit 1; }
 }
@@ -427,8 +423,8 @@ case $verb in
     sleep 30
     x "steam steam://rungameid/$appid >/dev/null 2>&1 &"
     i=0
-    exe_pat "$exe"
-    until sudo -n podman exec "$c" pgrep -f "$pat" >/dev/null; do
+    exe_comm "$exe"
+    until sudo -n podman exec "$c" pgrep -x -- "$comm" >/dev/null; do
       sleep 10
       i=$((i + 10))
       [ $i -ge 900 ] && { echo "$exe never started" >&2; break; }
@@ -456,18 +452,18 @@ case $verb in
   close) # exe steam-root appid settle upload-wait exe-wait: wait for the exe, let it run settle seconds, TERM it, wait for the cloud upload
     exe=$1 root=$2 appid=$3 settle=$4 upload=$5 waitmax=$6
     c=$(sudo -n podman ps --format '{{.Names}}' | grep -m1 '^WolfSteam_') || { echo "no WolfSteam container; nothing to close"; exit 0; }
-    exe_pat "$exe"
+    exe_comm "$exe"
     i=0
-    until sudo -n podman exec "$c" pgrep -f "$pat" >/dev/null; do
+    until sudo -n podman exec "$c" pgrep -x -- "$comm" >/dev/null; do
       [ $i -ge "$waitmax" ] && { echo "$exe not running after ${i}s"; exit 0; }
       sleep 10
       i=$((i + 10))
     done
     echo "$exe up after ${i}s"
     sleep "$settle"
-    sudo -n podman exec -u retro "$c" pkill -TERM -f "$pat"
+    sudo -n podman exec -u retro "$c" pkill -TERM -x -- "$comm"
     i=0
-    while sudo -n podman exec "$c" pgrep -f "$pat" >/dev/null; do
+    while sudo -n podman exec "$c" pgrep -x -- "$comm" >/dev/null; do
       sleep 2
       i=$((i + 2))
       [ $i -ge 60 ] && { echo "$exe still running ${i}s after TERM" >&2; exit 1; }
