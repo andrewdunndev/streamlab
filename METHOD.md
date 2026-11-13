@@ -25,6 +25,10 @@ Hosts are arguments to `bin/streamlab`. Nothing in the repo names one.
   process dies. Nothing persists across a reboot.
 - A winning variant reaches a host only through the normal configuration
   review. The rig never promotes anything.
+- Close a game cleanly before its lobby stops. Killing it with the lobby
+  leaves a cloud-save session pending, and the next launch on another host
+  stalls on it. `streamlab game stop` refuses to stop a lobby unless it is
+  given the game's executable to close first (or `--force`).
 
 ## What is measured
 
@@ -66,7 +70,29 @@ Input-to-photon latency and image quality are out of scope.
 Steps 4 and 5 compare against a same-day baseline on the same
 hosts.
 
-## HDR
+## Tier 1: per-game compatibility
+
+We want to know whether a game starts with no one at the controls, per game
+and per vendor. `streamlab game run` holds a Wolf UI stream, starts a lobby
+for the Steam profile, launches the game with `steam://rungameid` and
+samples it every `--interval` seconds. It appends one row to
+`results/game.tsv` and saves a screenshot under `results/logs/`:
+
+- `focused`: whether the game's app id is gamescope's focused app at the
+  last sample. The screenshot shows what was on screen then.
+- `forced`: whether `--baselayer` had to bring the game to the front. With
+  that flag, if Big Picture keeps focus while the game's window exists, the
+  probe sets `GAMESCOPECTRL_BASELAYER_APPID` to the game's app id. A
+  `forced=yes` row is a finding: the game did not take focus on its own.
+- `gpu_max`: the highest GPU utilisation sampled. A low figure means the
+  window is mapped but the game is not rendering.
+- `ttff_s`: seconds from launch until the game first has focus, including
+  the first-launch shader build. It is a multiple of `--interval`.
+
+`streamlab game diag` launches a game and dumps why it has no focusable
+window.
+
+## Tier 2: HDR
 
 HDR is a later track. The first goal is a stream that works without
 problems. HDR needs an HDR-capable server path, a client that sets the
