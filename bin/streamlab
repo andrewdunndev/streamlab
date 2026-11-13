@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # streamlab: drive a Wolf host and a Moonlight client host over ssh.
-# usage: streamlab guard HOST... | pair ... | run ... | parse LOG
+# usage: streamlab guard HOST... | pair ... | run ... | game VERB ... | parse LOG
 set -euo pipefail
 
 # Wolf API field names, from the live openapi-schema. Fix here only.
@@ -284,6 +284,335 @@ cmd_run() {
   done
 }
 
+# Runs on the Wolf host through `sh -s -- VERB ARGS...`; sock and pdata are
+# prepended by game_remote. Needs podman, sudo, curl and jq on the host.
+read -r -d '' GAME_REMOTE <<'EOF' || true
+set -u
+verb=$1
+shift
+shots=${TMPDIR:-/tmp}
+get() { sudo -n curl -sf --unix-socket "$sock" "http://localhost/api/v1/$1"; }
+post() { sudo -n curl -s --unix-socket "$sock" -X POST -H 'Content-Type: application/json' -d @- "http://localhost/api/v1/$1"; }
+steam_container() {
+  c=$(sudo -n podman ps --format '{{.Names}}' | grep -m1 '^WolfSteam_') || { echo "no WolfSteam container" >&2; exit 1; }
+}
+steam_up() { # max-wait-secs: sets c, pid and envs once Steam and its web helper run
+  steam_container
+  i=0
+  until pid=$(sudo -n podman exec "$c" pgrep -o -x steam) && sudo -n podman exec "$c" pgrep -f steamwebhelper >/dev/null; do
+    sleep 5
+    i=$((i + 5))
+    [ $i -ge "$1" ] && { echo "steam never came up" >&2; exit 1; }
+  done
+  envs=$(sudo -n podman exec "$c" sh -c "tr '\0' '\n' </proc/$pid/environ" \
+    | grep -E '^(DISPLAY|WAYLAND_DISPLAY|GAMESCOPE_WAYLAND_DISPLAY|XDG_RUNTIME_DIR|HOME)=' | tr '\n' ' ')
+}
+x() { sudo -n podman exec -u retro "$c" sh -c "env $envs $1"; }
+gpu() {
+  if command -v nvidia-smi >/dev/null; then
+    nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -1
+  else
+    for f in /sys/class/drm/card*/device/gpu_busy_percent; do printf '%s ' "$(cat "$f")"; done
+  fi
+}
+wins() { # focusable windows as appid:comm
+  x 'xprop -root GAMESCOPE_FOCUSABLE_WINDOWS' 2>/dev/null | sed 's/.*= //' | tr -d ' ' | tr ',' '\n' \
+    | awk 'NR%3==2{a=$0} NR%3==0{print a, $0}' | while read -r a p; do
+      printf '%s:%s ' "$a" "$(sudo -n podman exec "$c" cat /proc/"$p"/comm 2>/dev/null)"
+    done
+}
+shot() { # tag
+  x "gamescopectl screenshot $shots/$1.png" >/dev/null 2>&1
+  sleep 3
+  sudo -n podman cp "$c:$shots/$1.png" "$shots/$1.png" && sudo -n chmod 644 "$shots/$1.png" && echo "shot $shots/$1.png"
+}
+
+case $verb in
+  lobby) # profile extra-env image: start the profile's first app and join the live session
+    profile=$1
+    set -e
+    sess=$(get sessions | jq -c '.sessions[0]')
+    [ "$sess" != null ] || { echo "no session" >&2; exit 1; }
+    cid=$(echo "$sess" | jq -r .client_id)
+    ui=$(sudo -n podman ps --format '{{.Names}}' | grep -m1 "^Wolf-UI_$cid") || { echo "no Wolf UI container" >&2; exit 1; }
+    caps=$(sudo -n podman inspect "$ui" | jq -r '.[0].Config.Env[] | select(startswith("WOLF_VIDEO_BUFFER_CAPS=")) | sub("^WOLF_VIDEO_BUFFER_CAPS=";"")')
+    runner=$(get profiles | jq -c --arg p "$profile" --arg e "${2:-}" --arg i "${3:-}" '.profiles[] | select(.id==$p) | .apps[0].runner
+      | if $e != "" then .env += [$e] else . end | if $i != "" then .image = $i else . end')
+    node=$(sudo -n podman inspect wolf | jq -r '.[0].Config.Env[] | select(startswith("WOLF_RENDER_NODE=")) | sub("^WOLF_RENDER_NODE=";"")')
+    node=${node:-/dev/dri/renderD128}
+    lid=$(jq -nc --argjson s "$sess" --argjson r "$runner" --arg caps "$caps" --arg p "$profile" --arg node "$node" --arg pd "$pdata" '{
+      profile_id: $p, name: "streamlab", multi_user: false, pin: null,
+      stop_when_everyone_leaves: true,
+      runner_state_folder: ($pd + "/" + $p + "/" + $r.name),
+      runner: $r, client_settings: $s.client_settings,
+      audio_settings: {channel_count: $s.audio_channel_count},
+      video_settings: {width: $s.video_width, height: $s.video_height,
+        refresh_rate: $s.video_refresh_rate, wayland_render_node: $node,
+        runner_render_node: $node, video_producer_buffer_caps: $caps}}' \
+      | post lobbies/create | jq -r .lobby_id)
+    jq -nc --arg l "$lid" --arg c "$cid" '{lobby_id: $l, moonlight_session_id: $c}' | post lobbies/join >/dev/null
+    echo "$lid"
+    ;;
+  stop) # lobby
+    printf '{"lobby_id":"%s"}' "$1" | post lobbies/stop
+    echo
+    ;;
+  status)
+    echo "$(sudo -n podman ps --format '{{.Names}}' | tr '\n' ' ')sessions=$(get sessions | jq '.sessions|length')"
+    ;;
+  sessions)
+    get sessions | jq '.sessions|length'
+    ;;
+  exec) # command: run it as the Steam user, inside the Steam session's environment
+    steam_up 10
+    # shellcheck disable=SC2086
+    printf '%s\n' "$1" | sudo -n podman exec -i -u retro "$c" env $envs sh -s
+    ;;
+  probe) # appid secs tag baselayer step
+    appid=$1 secs=$2 tag=$3 base=$4 step=$5
+    steam_up 300
+    i=0
+    until x 'xprop -root GAMESCOPE_FOCUSED_APP' 2>/dev/null | grep -q '= 769'; do
+      sleep 5
+      i=$((i + 5))
+      [ $i -ge 300 ] && { echo "big picture never focused" >&2; break; }
+    done
+    sleep 20
+    echo "steam up after ~${i}s; launching $appid"
+    x "steam steam://rungameid/$appid >/dev/null 2>&1 &"
+    t=0 ttff=none gmax=0 forced=no f=
+    while [ $t -lt "$secs" ]; do
+      sleep "$step"
+      t=$((t + step))
+      f=$(x 'xprop -root GAMESCOPE_FOCUSED_APP' 2>/dev/null | sed 's/.*= //')
+      b=$(x 'xprop -root GAMESCOPECTRL_BASELAYER_APPID' 2>/dev/null | sed 's/.*= //')
+      w=$(wins)
+      g=$(gpu)
+      for v in $g; do [ "$v" -gt "$gmax" ] 2>/dev/null && gmax=$v; done
+      [ "$ttff" = none ] && [ "$f" = "$appid" ] && ttff=$t
+      echo "t=$t gpu=$g focused=$f base=[$b] wins=$w"
+      if [ "$base" = 1 ] && [ "$f" != "$appid" ]; then
+        case " $w" in
+          *" $appid:"*)
+            x "xprop -root -f GAMESCOPECTRL_BASELAYER_APPID 32c -set GAMESCOPECTRL_BASELAYER_APPID $appid"
+            forced=yes
+            echo "t=$t base layer set to $appid"
+            ;;
+        esac
+      fi
+    done
+    [ "$f" = "$appid" ] && end=yes || end=no
+    echo "result focused=$end ttff_s=$ttff gpu_max=$gmax forced=$forced"
+    shot "$tag"
+    echo "--- game processes"
+    sudo -n podman exec "$c" sh -c "ps -eo etimes,comm | grep -viE 'steam|sh$|ps$|grep|xwayland|gamescope|pipewire|dbus|reaper|sleep|tr$|cat$' | tail -8"
+    ;;
+  diag) # appid exe tag: why a running game has no focusable window
+    appid=$1 exe=$2 tag=$3
+    steam_up 300
+    sleep 30
+    x "steam steam://rungameid/$appid >/dev/null 2>&1 &"
+    i=0
+    until sudo -n podman exec "$c" pgrep -x "$exe" >/dev/null; do
+      sleep 10
+      i=$((i + 10))
+      [ $i -ge 900 ] && { echo "$exe never started" >&2; break; }
+    done
+    echo "$exe up after ${i}s"
+    sleep 90
+    echo "--- tools"
+    sudo -n podman exec -u retro "$c" sh -c 'for t in xwininfo xdotool xlsclients wmctrl xdpyinfo python3 vulkaninfo; do command -v $t >/dev/null && printf "%s " $t; done; echo'
+    echo "--- root props"
+    x 'xprop -root' 2>/dev/null | grep -E '^GAMESCOPE(_FOCUS|CTRL_BASELAYER)' | cut -c1-200
+    echo "--- procs (stat wchan cpu)"
+    sudo -n podman exec "$c" ps -eo pid,stat,wchan:20,pcpu,etimes,comm --sort=-pcpu | head -14
+    echo "--- gpu procs"
+    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null | head
+    echo "--- driver"
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null
+    echo "--- focus_info"
+    x 'gamescopectl focus_info' >/dev/null 2>&1
+    sleep 2
+    sudo -n podman logs --since 10s "$c" 2>&1 | tail -25 | cut -c1-200
+    echo "--- recent container log errors"
+    sudo -n podman logs --since 400s "$c" 2>&1 | grep -iE 'err|fail|vk_|vulkan|dxvk|wine|fatal|crash' | grep -v -i 'steamwebhelper' | tail -25 | cut -c1-220
+    shot "$tag"
+    ;;
+  close) # exe steam-root appid settle upload-wait: TERM the exe, wait for it to exit and the cloud upload
+    exe=$1 root=$2 appid=$3 settle=$4 upload=$5
+    steam_container
+    sudo -n podman exec "$c" pgrep -x "$exe" >/dev/null || { echo "$exe not running"; exit 0; }
+    sleep "$settle"
+    sudo -n podman exec -u retro "$c" pkill -TERM -x "$exe"
+    i=0
+    while sudo -n podman exec "$c" pgrep -x "$exe" >/dev/null; do
+      sleep 2
+      i=$((i + 2))
+      [ $i -ge 60 ] && { echo "$exe still running ${i}s after TERM" >&2; exit 1; }
+    done
+    echo "$exe exited ${i}s after TERM"
+    sleep "$upload"
+    if [ -n "$root" ]; then
+      sudo -n grep -a -h "$appid" "$root/logs/cloud_log.txt" | tail -2 | cut -c1-150
+    fi
+    ;;
+  *)
+    echo "unknown verb $verb" >&2
+    exit 2
+    ;;
+esac
+EOF
+
+GAME_STATE=${STREAMLAB_STATE:-${TMPDIR:-/tmp}/streamlab-game}
+WOLF_PROFILE_DATA=/var/srv/wolf/profile-data
+GAME_MARGIN=420
+GAME_SELF=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
+
+shq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+
+game_remote() { # host verb args...
+  local h=$1 verb=$2 a args=''
+  shift 2
+  for a in "$@"; do args+=" $(shq "$a")"; done
+  { printf 'sock=%s\npdata=%s\n' "$WOLF_SOCK" "$WOLF_PROFILE_DATA"; printf '%s\n' "$GAME_REMOTE"; } \
+    | remote "$h" "sh -s -- $verb$args"
+}
+
+game_hold() { # starts the Wolf UI stream in the background and prints the lobby id
+  guard "$server" "$client"
+  mkdir -p "$GAME_STATE"
+  nohup "$GAME_SELF" run --server "$server" --server-addr "$saddr" --client "$client" --app "$app" \
+    --res "$res" --fps "$fps" --bitrate "$bitrate" --secs "$1" --runs 1 --variant "game-${tag:-hold}" \
+    --out "$GAME_STATE/hold.tsv" >"$GAME_STATE/hold.log" 2>&1 &
+  echo $! >"$GAME_STATE/hold.pid"
+  local n=0
+  for _ in $(seq 1 60); do
+    n=$(game_remote "$server" sessions 2>/dev/null || echo 0)
+    [ "${n:-0}" -ge 1 ] && break
+    sleep 3
+  done
+  [ "${n:-0}" -ge 1 ] || { game_release; die "game: the stream never opened a session on $server"; }
+  sleep 15
+  game_remote "$server" lobby "$profile" "$env" "$image"
+}
+
+game_release() { # stops the background stream and any leftover client container
+  if [ -f "$GAME_STATE/hold.pid" ]; then
+    kill "$(cat "$GAME_STATE/hold.pid")" 2>/dev/null || true
+    rm -f "$GAME_STATE/hold.pid"
+  fi
+  if [ -n "$client" ]; then
+    remote "$client" "sudo -n podman ps -q --filter ancestor=${IMAGE%:*} | xargs -r sudo -n podman stop -t 5" >/dev/null 2>&1 || true
+    [ -z "$saddr" ] || remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
+      -v $STATE_DIR/moonlight:/xdg:Z $IMAGE quit $saddr" >/dev/null 2>&1 || true
+  fi
+}
+
+# Closes the game cleanly before the lobby goes: a game killed with its lobby
+# leaves a cloud-save session pending and the next launch elsewhere stalls on it.
+game_stop() {
+  if [ -n "$exe" ]; then
+    game_remote "$server" close "$exe" "$steam_root" "$appid" "$settle" "$upload_wait" \
+      || die "stop: $exe did not exit cleanly; the lobby is left running"
+  elif [ -z "$force" ]; then
+    die "stop: --exe is required so the game is closed before its lobby stops (or --force)"
+  fi
+  [ -z "$lobby" ] || game_remote "$server" stop "$lobby" >/dev/null
+  game_release
+  sleep 10
+  echo "streamlab: $(game_remote "$server" status)"
+}
+
+game_run() {
+  local lid rc=0 out ts
+  lid=$(game_hold $((secs + GAME_MARGIN))) || die "run: could not start the lobby"
+  echo "streamlab: lobby $lid"
+  out=$(game_remote "$server" probe "$appid" "$secs" "$tag" "$baselayer" "$interval") || rc=$?
+  printf '%s\n' "$out"
+  mkdir -p "$shot_dir" "$(dirname "$results")"
+  local shot
+  shot=$(printf '%s\n' "$out" | awk '$1 == "shot" {print $2}')
+  [ -z "$shot" ] || remote "$server" "cat '$shot'" >"$shot_dir/$tag.png" 2>/dev/null || true
+  [ -s "$results" ] || printf 'ts\thost\tappid\ttag\tfocused\tttff_s\tgpu_max\tforced\n' >"$results"
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  printf '%s\n' "$out" | awk -v ts="$ts" -v h="${label:-$server}" -v a="$appid" -v t="$tag" -F'[ =]' '
+    $1 == "result" {printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ts, h, a, t, $3, $5, $7, $9; ok = 1}
+    END {exit ok ? 0 : 1}' >>"$results" || echo "streamlab: run: no result line from the probe" >&2
+  lobby=$lid
+  game_stop || rc=1
+  return "$rc"
+}
+
+cmd_game() {
+  local verb=${1:-}
+  [ $# -gt 0 ] && shift
+  local server='' saddr='' client='' profile='' env='' image='' appid='' exe='' steam_root=''
+  local secs=240 tag='' interval=10 baselayer=0 lobby='' settle=0 upload_wait=30 force=''
+  local app='Wolf UI' res=1920x1080 fps=60 bitrate=20000 results=results/game.tsv
+  local shot_dir=results/logs label='' cmd=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --server) server=$2; shift 2 ;;
+      --server-addr) saddr=$2; shift 2 ;;
+      --client) client=$2; shift 2 ;;
+      --profile) profile=$2; shift 2 ;;
+      --env) env=$2; shift 2 ;;
+      --image) image=$2; shift 2 ;;
+      --appid) appid=$2; shift 2 ;;
+      --exe) exe=$2; shift 2 ;;
+      --steam-root) steam_root=$2; shift 2 ;;
+      --secs) secs=$2; shift 2 ;;
+      --tag) tag=$2; shift 2 ;;
+      --interval) interval=$2; shift 2 ;;
+      --baselayer) baselayer=1; shift ;;
+      --lobby) lobby=$2; shift 2 ;;
+      --settle) settle=$2; shift 2 ;;
+      --upload-wait) upload_wait=$2; shift 2 ;;
+      --force) force=1; shift ;;
+      --app) app=$2; shift 2 ;;
+      --res) res=$2; shift 2 ;;
+      --fps) fps=$2; shift 2 ;;
+      --bitrate) bitrate=$2; shift 2 ;;
+      --results) results=$2; shift 2 ;;
+      --shot-dir) shot_dir=$2; shift 2 ;;
+      --label) label=$2; shift 2 ;;
+      --) shift; cmd=$*; break ;;
+      *) die "game $verb: unknown option $1" ;;
+    esac
+  done
+  tag=${tag:-$appid}
+  need() { # option names that must be non-empty, as "name=value" pairs
+    local p
+    for p in "$@"; do
+      [ -n "${p#*=}" ] || die "game $verb: --${p%%=*} is required"
+    done
+  }
+  case $verb in
+    lobby) need server="$server" profile="$profile"; game_remote "$server" lobby "$profile" "$env" "$image" ;;
+    exec) need server="$server" command="$cmd"; game_remote "$server" exec "$cmd" ;;
+    probe) need server="$server" appid="$appid"; game_remote "$server" probe "$appid" "$secs" "$tag" "$baselayer" "$interval" ;;
+    diag) need server="$server" appid="$appid" exe="$exe"; game_remote "$server" diag "$appid" "$exe" "$tag" ;;
+    close)
+      need server="$server" exe="$exe"
+      game_remote "$server" close "$exe" "$steam_root" "$appid" "$settle" "$upload_wait"
+      ;;
+    hold)
+      need server="$server" server-addr="$saddr" client="$client" profile="$profile"
+      game_hold "$secs"
+      ;;
+    stop)
+      need server="$server" server-addr="$saddr" client="$client" lobby="$lobby"
+      game_stop
+      ;;
+    run)
+      need server="$server" server-addr="$saddr" client="$client" profile="$profile" appid="$appid"
+      [ -n "$exe" ] || [ -n "$force" ] || die "run: --exe is required so the game is closed before its lobby stops (or --force)"
+      game_run
+      ;;
+    *) echo "usage: streamlab game lobby|exec|probe|diag|close|hold|stop|run OPTIONS" >&2; exit 2 ;;
+  esac
+}
+
 main() {
   local sub=${1:-}
   [ $# -gt 0 ] && shift
@@ -291,8 +620,9 @@ main() {
     guard) guard "$@" ;;
     pair) cmd_pair "$@" ;;
     run) cmd_run "$@" ;;
+    game) cmd_game "$@" ;;
     parse) parse "$@" ;;
-    *) echo "usage: streamlab guard HOST... | pair | run | parse LOG" >&2; exit 2 ;;
+    *) echo "usage: streamlab guard HOST... | pair | run | game | parse LOG" >&2; exit 2 ;;
   esac
 }
 
