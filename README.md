@@ -24,7 +24,7 @@ Moonlight client for the other.
   RPM Fusion ffmpeg. The NVIDIA userspace is injected at run time through CDI.
 - `bin/streamlab`: a bash driver run from a workstation over ssh.
 - `scripts/assert-client.sh`: build-time checks for the client image.
-- `tests/`: parser tests against fixture logs.
+- `tests/`: parser tests against fixture logs, and `streamlab game` tests against stub hosts.
 - `results/`: result TSVs, committed per baseline.
 
 ## Use
@@ -41,7 +41,41 @@ bin/streamlab run --server HOST_A --server-addr ADDR_A --client HOST_B \
   --secs 30 --runs 3 --out results/baseline.tsv
 bin/streamlab parse results/logs/some-run.log
 tests/test-parse.sh
+tests/test-game.sh
 ```
+
+### Per-game compatibility
+
+`streamlab game` drives a Steam game through Wolf the way a television does: a Wolf UI
+stream from the client host, a lobby for a Wolf profile that runs Steam, a
+`steam://rungameid` launch, and focus, GPU load and time to first frame logged on the
+server. The Wolf host also needs `jq` and curl. Profile, app id, executable and Steam
+root are all flags.
+
+```sh
+bin/streamlab game run --server HOST_A --server-addr ADDR_A --client HOST_B \
+  --profile PROFILE --appid APPID --exe GAME.exe --steam-root STEAM_DIR \
+  --secs 300 --baselayer
+```
+
+`run` holds a stream, starts the lobby, probes, records a row in `results/game.tsv`,
+then closes the game and stops the lobby. The pieces are available on their own:
+
+| Verb | Does |
+|------|------|
+| `lobby` | start PROFILE's first app in a lobby and join the live session; prints the lobby id |
+| `hold` | start the Wolf UI stream in the background, then the lobby |
+| `probe` | wait for Big Picture, launch `--appid`, log focus every `--interval` seconds |
+| `diag` | launch `--appid`, wait for `--exe`, dump why it has no focusable window |
+| `exec` | run `-- CMD` as the Steam user inside Steam's session environment |
+| `close` | TERM `--exe`, wait for it to exit and for the cloud upload |
+| `stop` | close the game, stop `--lobby`, release the stream and client |
+
+`--baselayer` is opt-in: when Big Picture holds focus and the game's window exists, it
+sets `GAMESCOPECTRL_BASELAYER_APPID` to the app id. `stop` and `run` refuse to stop a
+lobby without `--exe`, so the game always closes cleanly first; `--force` overrides.
+Run state (`hold.pid`, the stream log) goes under `$STREAMLAB_STATE`, default
+`$TMPDIR/streamlab-game`.
 
 ## Build and release
 
