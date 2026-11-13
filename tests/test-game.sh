@@ -43,7 +43,12 @@ esac
 [ "${FAKE_MODE:-log}" = live ] && exec sh -c "$cmd" <"$FAKE_DIR/stdin"
 exit 0
 EOF
-printf '#!/bin/sh\nexit 0\n' >"$stubs/sleep"
+cat >"$stubs/sleep" <<'EOF'
+#!/bin/sh
+echo "$1" >>"$FAKE_DIR/sleeps"
+[ -e "$FAKE_DIR/start_on_sleep" ] && : >"$FAKE_DIR/running"
+exit 0
+EOF
 cat >"$stubs/sudo" <<'EOF'
 #!/bin/sh
 [ "$1" = -n ] && shift
@@ -157,7 +162,7 @@ check run_needs_exe_or_force 1 "$?"
 reset
 game lobby --server s --profile 'a b' --env 'K=v w' >"$work/out" 2>&1
 check lobby_prints_id lobby-123 "$(cat "$work/out")"
-check lobby_args_quoted "lobby 'a b' 'K=v w' ''" "$(cat "$work/fake/calls")"
+check lobby_args_quoted "lobby 'a b' 'K=v w' '' '0' '1920x1080'" "$(cat "$work/fake/calls")"
 sh -n "$work/fake/stdin"
 check remote_syntax 0 "$?"
 if command -v shellcheck >/dev/null; then
@@ -192,7 +197,109 @@ mkdir -p "$work/root/logs"
 echo "1465360 upload done" >"$work/root/logs/cloud_log.txt"
 FAKE_MODE=live game close --server s --exe Game.exe --appid 1465360 --steam-root "$work/root" >"$work/out" 2>&1
 check close_exit 0 "$?"
-check close_termed '-TERM -x Game.exe' "$(cat "$work/fake/signals")"
+check close_termed '-TERM -f (^|[/\ ])Game\.exe( |$)' "$(cat "$work/fake/signals")"
 check close_cloud_log '1465360 upload done' "$(tail -1 "$work/out")"
+check close_soaks_60s 60 "$(grep -x 60 "$work/fake/sleeps" | head -1)"
+
+# close: a slow first launch is waited for, then soaked, then closed
+reset
+: >"$work/fake/start_on_sleep"
+FAKE_MODE=live game close --server s --exe Game.exe --appid 1465360 >"$work/out" 2>&1
+check close_waits_for_exe 0 "$?"
+check close_waited_then_termed 'Game.exe up after 10s' "$(grep 'up after' "$work/out")"
+check close_slow_launch_termed '-TERM -f (^|[/\ ])Game\.exe( |$)' "$(cat "$work/fake/signals")"
+
+reset
+FAKE_MODE=live game close --server s --exe Game.exe --exe-wait 30 >"$work/out" 2>&1
+check close_never_started_rc 0 "$?"
+check close_never_started_msg 'Game.exe not running after 30s' "$(cat "$work/out")"
+check close_never_started_no_term '' "$(cat "$work/fake/signals" 2>/dev/null)"
+
+# the exe matcher is anchored: a longer name or a suffix does not match
+eval "$(sed -n '/^exe_pat()/,/^}/p' "$bin")"
+pat=
+exe_pat Game.exe
+for line in 'Game.exe' '/opt/x/Game.exe -w' 'Z:\x\Game.exe'; do
+  printf '%s\n' "$line" | grep -Eq -- "$pat"
+  check "exe_pat_matches $line" 0 "$?"
+done
+for line in 'NotGame.exe' 'Game.exe.bak' 'GameXexe' 'steam Game.exe.log'; do
+  printf '%s\n' "$line" | grep -Eq -- "$pat"
+  check "exe_pat_rejects $line" 1 "$?"
+done
+exe_pat 'a.b'
+printf '%s\n' axb | grep -Eq -- "$pat"
+check exe_pat_escapes_dot 1 "$?"
+
+# option validation
+reset
+game probe --server s --appid 1 --interval 0 >/dev/null 2>&1
+check interval_zero_refused 1 "$?"
+game probe --server s --appid 1 --secs abc >/dev/null 2>&1
+check secs_non_numeric_refused 1 "$?"
+game exec --server s >"$work/out" 2>&1
+check exec_needs_command_msg 'streamlab: game exec: a command after -- is required' "$(cat "$work/out")"
+game probe --server s --appid 1 --tag '../x' >/dev/null 2>&1
+check tag_path_refused 1 "$?"
+check validation_touches_nothing '' "$(verbs)"
+
+# lobby: the JSON body, joined or headless
+cat >"$stubs/curl" <<'EOF'
+#!/bin/sh
+for a; do u=$a; done
+case $u in
+  */profiles) echo '{"profiles":[{"id":"p","apps":[{"runner":{"name":"steam","image":"orig","env":["A=1"]}}]}]}' ;;
+  */sessions) echo '{"sessions":[{"client_id":"c1","client_settings":{"run_uid":1},"audio_channel_count":6,"video_width":1280,"video_height":720,"video_refresh_rate":60}]}' ;;
+  */lobbies/create) cat >"$FAKE_DIR/create.json"; echo '{"lobby_id":"L1"}' ;;
+  */lobbies/join) cat >"$FAKE_DIR/join.json" ;;
+  */lobbies/stop) cat >"$FAKE_DIR/stop.json" ;;
+esac
+EOF
+cat >"$stubs/podman" <<'EOF'
+#!/bin/sh
+case $1 in
+  ps) echo WolfSteam_test; echo Wolf-UI_c1 ;;
+  inspect)
+    case $2 in
+      wolf) echo '[{"Config":{"Env":[]}}]' ;;
+      *) echo '[{"Config":{"Env":["WOLF_VIDEO_BUFFER_CAPS=video/x-raw(memory:CUDAMemory)"]}}]' ;;
+    esac
+    ;;
+  exec) shift; [ "$1" = -u ] && shift 2; [ "$1" = -i ] && shift; shift; exec "$@" ;;
+  cp) : >"$3" ;;
+esac
+EOF
+chmod +x "$stubs"/*
+
+if command -v jq >/dev/null; then
+  reset
+  FAKE_MODE=live game lobby --server s --profile p --env K=v --image img:2 >"$work/out" 2>&1
+  check lobby_live_id L1 "$(cat "$work/out")"
+  check lobby_runner_image img:2 "$(jq -r .runner.image "$work/fake/create.json")"
+  check lobby_runner_env '["A=1","K=v"]' "$(jq -c .runner.env "$work/fake/create.json")"
+  check lobby_buffer_caps 'video/x-raw(memory:CUDAMemory)' "$(jq -r .video_settings.video_producer_buffer_caps "$work/fake/create.json")"
+  check lobby_render_node_default /dev/dri/renderD128 "$(jq -r .video_settings.runner_render_node "$work/fake/create.json")"
+  check lobby_stops_when_empty true "$(jq -r .stop_when_everyone_leaves "$work/fake/create.json")"
+  check lobby_joins_session c1 "$(jq -r .moonlight_session_id "$work/fake/join.json")"
+
+  reset
+  FAKE_MODE=live game lobby --server s --profile p --headless --res 2560x1440 >"$work/out" 2>&1
+  check headless_id L1 "$(cat "$work/out")"
+  check headless_size 2560x1440 "$(jq -r '"\(.video_settings.width)x\(.video_settings.height)"' "$work/fake/create.json")"
+  check headless_persists false "$(jq -r .stop_when_everyone_leaves "$work/fake/create.json")"
+  check headless_no_join no "$([ -e "$work/fake/join.json" ] && echo yes || echo no)"
+
+  reset
+  FAKE_MODE=live game stop --server s --lobby "L'1" --force >/dev/null 2>&1
+  check stop_json_escaped "L'1" "$(jq -r .lobby_id "$work/fake/stop.json")"
+fi
+
+# headless run: no client, no stream, one probe, then close and stop
+reset
+game run --server s --profile p --appid 1465360 --exe Game.exe --headless \
+  --results "$work/res/game.tsv" --shot-dir "$work/res/logs" >/dev/null 2>&1
+check headless_run_rc 0 "$?"
+check headless_run_verbs 'lobby probe close stop status' "$(verbs)"
+check headless_run_lobby_args "lobby 'p' '' '' '1' '1920x1080'" "$(head -1 "$work/fake/calls")"
 
 exit "$fail"

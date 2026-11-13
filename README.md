@@ -63,17 +63,17 @@ then closes the game and stops the lobby. The pieces are available on their own:
 
 | Verb | Does |
 |------|------|
-| `lobby` | start PROFILE's first app in a lobby and join the live session; prints the lobby id |
+| `lobby` | start PROFILE's first app in a lobby and join the live session; prints the lobby id. `--image IMG` swaps the runner image, `--env K=V` adds a variable, `--headless [--res WxH]` skips the Moonlight session and the lobby outlives everyone |
 | `hold` | start the Wolf UI stream in the background, then the lobby |
 | `probe` | wait for Big Picture, launch `--appid`, log focus every `--interval` seconds |
 | `diag` | launch `--appid`, wait for `--exe`, dump why it has no focusable window |
 | `exec` | run `-- CMD` as the Steam user inside Steam's session environment |
-| `close` | TERM `--exe`, wait for it to exit and for the cloud upload |
+| `close` | wait up to `--exe-wait` (600) seconds for `--exe`, let it run `--settle` (60), TERM it, wait for it to exit and for the cloud upload |
 | `stop` | close the game, stop `--lobby`, release the stream and client |
 
 `--baselayer` is opt-in: when Big Picture holds focus and the game's window exists, it
 sets `GAMESCOPECTRL_BASELAYER_APPID` to the app id. `stop` and `run` refuse to stop a
-lobby without `--exe`, so the game always closes cleanly first; `--force` overrides.
+lobby without `--exe`, so the game always closes cleanly first; `--force` overrides. `run --headless` needs no `--client` or `--server-addr`.
 Run state (`hold.pid`, the stream log) goes under `$STREAMLAB_STATE`, default
 `$TMPDIR/streamlab-game`.
 

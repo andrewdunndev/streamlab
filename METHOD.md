@@ -13,8 +13,7 @@ to scan out to, so either host can act as a headless Moonlight client for
 the other, using the image in `client/`. Swapping roles gives the vendor
 A/B with everything else constant.
 
-Hosts, profiles and paths are arguments to `bin/streamlab`. Nothing in the
-repo names one.
+Hosts are arguments to `bin/streamlab`. Nothing in the repo names one.
 
 ## Guard and revert rules
 
@@ -31,27 +30,45 @@ repo names one.
   stalls on it. `streamlab game stop` refuses to stop a lobby unless it is
   given the game's executable to close first (or `--force`).
 
-## Harness
+## What is measured
 
-`streamlab run` streams one app and writes one TSV row per run from the
-"Global video stats" block moonlight-qt prints at teardown: frame rates,
-host processing latency, drops, round-trip time, decode, queue and render
-time, the decoder and renderer chosen, and the server's average GPU load.
+Each run produces one TSV row from the "Global video stats" block that
+moonlight-qt prints at teardown: incoming, decoded and rendered frame rates,
+host processing latency, network and jitter drops, round-trip time, and
+average decode, queue and render time. The row also records which decoder and
+renderer the client chose, and the server's average GPU load, sampled once a
+second. A field the client did not print stays empty.
 
-1. Proof. Stream Wolf's built-in "Test ball" app for 30 seconds and get a
-   row with real values. Repeat at 30 fps as a negative control: the
-   frame-rate fields must halve, or the harness measures nothing.
-2. Smoke. After pulling new images on a host, run the proof again. If it
-   fails, roll the pull back before anything else.
-3. Baseline and A/B. Codec, resolution and frame rate per vendor, three
-   runs per cell, committed under `results/`. A setting or image variant is
-   compared with a same-day baseline on the same hosts. Codecs are the ones
-   the server's GStreamer registers a hardware encoder for.
+## What is not measured
 
 Decode happens on the client host's GPU, not on a television or a phone, so
 absolute numbers are a proxy. We trust the difference between two variants
-on the same rig. When a variant wins, we play it on a real client once and
-read its overlay; if that disagrees, we distrust the rig on that axis.
+on the same rig, not the number itself. We keep one human calibration point:
+when a variant wins, we play the same configuration on a real client for a
+few minutes and read its overlay once. If that disagrees with the rig, we
+distrust the rig on that axis.
+
+Input-to-photon latency and image quality are out of scope.
+
+## Test order
+
+1. Harness proof. Stream Wolf's built-in "Test ball" app for 30 seconds and
+   get a row with real values. Repeat at 30 fps as a negative control: the
+   frame-rate fields must halve, or the harness measures nothing. A 5 Mbps
+   run is not a control here, since a test pattern streams cleanly at that
+   rate and nothing moves.
+2. Nightly-pull smoke. After pulling new images on a host, run the smoke
+   stream. If it fails, roll the pull back before anything else.
+3. Baseline matrix. Codec, resolution and frame rate on each vendor, three
+   runs per cell, committed under `results/`. Codecs are the ones the
+   server's GStreamer registers a hardware encoder for; a software-only
+   codec is not a cell.
+4. Setting A/B. One host setting per variant against the baseline, three runs
+   each.
+5. Image A/B. Two images of the same component, same settings, same cells.
+
+Steps 4 and 5 compare against a same-day baseline on the same
+hosts.
 
 ## Tier 1: per-game compatibility
 
@@ -76,9 +93,8 @@ Steam profile, and a `steam://rungameid` launch with no one at the controls.
 
 ## Tier 2: HDR
 
-HDR starts once tier 1 is stable on both vendors, and its fixes go
-upstream. It needs an HDR-capable server path, a client that sets the
+HDR is a later track. The first goal is a stream that works without
+problems. HDR needs an HDR-capable server path, a client that sets the
 connector's colorspace and metadata, and a display or plug whose EDID
-advertises HDR. Whether the dummy plug advertises it is unverified.
-
-Input-to-photon latency and image quality are out of scope.
+advertises HDR. Whether the dummy plug advertises it is unverified. The track starts
+once the baseline is stable, and its fixes go upstream.
