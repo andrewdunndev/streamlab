@@ -57,6 +57,8 @@ parse() {
       return ""
     }
     BEGIN {
+      split("vulkan vaapi cuda vdpau drm_prime videotoolbox d3d11 dxva2_vld qsv", hw, " ")
+      for (i in hw) hwfmt[hw[i]] = 1
       fmt["0x1"] = "H.264"; fmt["0x100"] = "HEVC"; fmt["0x200"] = "HEVC-Main10"
       fmt["0x1000"] = "AV1"; fmt["0x2000"] = "AV1-Main10"
     }
@@ -70,6 +72,10 @@ parse() {
     }
     /\] Format .* chosen by get_format/ && impl == "" {
       if (match($0, /\[[a-z0-9_]+ @/)) impl = substr($0, RSTART + 1, RLENGTH - 3)
+      if (match($0, /Format [a-z0-9_]+ chosen/)) {
+        pf = substr($0, RSTART + 7, RLENGTH - 14)
+        if (pf in hwfmt) impl = pf
+      }
     }
     /Using .* renderer/ && rend == "" {
       if (match($0, /Using .* renderer/)) rend = substr($0, RSTART + 6, RLENGTH - 15)
