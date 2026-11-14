@@ -24,7 +24,7 @@ Moonlight client for the other.
   RPM Fusion ffmpeg. The NVIDIA userspace is injected at run time through CDI.
 - `bin/streamlab`: a bash driver run from a workstation over ssh.
 - `scripts/assert-client.sh`: build-time checks for the client image.
-- `tests/`: parser tests against fixture logs, and `streamlab game` tests against stub hosts.
+- `tests/`: parser tests against fixture logs, and `streamlab run` and `streamlab game` tests against stub hosts.
 - `results/`: result TSVs, committed per baseline.
 
 ## Use
@@ -41,8 +41,21 @@ bin/streamlab run --server HOST_A --server-addr ADDR_A --client HOST_B \
   --secs 30 --runs 3 --out results/baseline.tsv
 bin/streamlab parse results/logs/some-run.log
 tests/test-parse.sh
+tests/test-run.sh
 tests/test-game.sh
 ```
+
+`--secs` counts from the moment moonlight starts the video stream, not from container
+launch. Each row ends with `stream_s`, the seconds of video, and `ended`: `timer` when
+`--secs` stopped the stream, `server` when the server dropped it first. Result files
+begun before these columns existed keep their old header.
+
+### Resume
+
+`run --resumes N` streams N times to the same app inside one run without quitting it
+between streams, then quits once. Stopping a stream leaves the app running, so every
+stream after the first is a resume. `--gap S` (default 2) pauses between streams. With
+`--resumes` above 1 the `run` column reads `RUN.K`; the default of 1 is unchanged.
 
 ### Per-game compatibility
 

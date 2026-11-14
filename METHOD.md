@@ -37,7 +37,10 @@ moonlight-qt prints at teardown: incoming, decoded and rendered frame rates,
 host processing latency, network and jitter drops, round-trip time, and
 average decode, queue and render time. The row also records which decoder and
 renderer the client chose, and the server's average GPU load, sampled once a
-second. A field the client did not print stays empty.
+second. A field the client did not print stays empty. `failed=` lists the decoders
+that did not initialize before the one in `impl=` was chosen: on an NVIDIA client
+`failed=VAAPI,VDPAU` is expected, and `impl=vulkan` or `impl=hevc_cuvid` is hardware
+decode.
 
 ## What is not measured
 

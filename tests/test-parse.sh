@@ -40,6 +40,9 @@ case $d in
   *) echo "FAIL decoder: got '$d'"; fail=1 ;;
 esac
 
+d=$(field "$here/fixtures/stats-vulkan.log" decoder)
+check decoder_vulkan "impl=vulkan renderer=SDL failed=VAAPI,VDPAU" "$d"
+
 p=$here/fixtures/partial.log
 check partial_host_lat '' "$(field "$p" host_lat_avg)"
 check partial_rtt      '' "$(field "$p" rtt)"
