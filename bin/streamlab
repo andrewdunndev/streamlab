@@ -208,6 +208,40 @@ mean_first_field() {
   awk -F, '$1 ~ /^[ ]*[0-9.]+[ ]*$/ {s += $1; n++} END {if (n) printf "%.1f", s / n}' "$1"
 }
 
+STREAM_NAME=streamlab-stream
+
+# Streams once on the client host. The --secs clock starts when moonlight
+# starts the video stream, not at container launch, and the stream ends early
+# if the server drops it. Sets STREAM_S (seconds of video) and STREAM_END
+# (timer or server).
+run_stream() { # client remote-cmd log secs
+  local client=$1 cmd=$2 log=$3 secs=$4 pid t0='' i=0
+  : >"$log"
+  remote "$client" "$cmd" 2>"$log" >/dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 120 ]; do
+    if grep -q 'Starting video stream' "$log"; then
+      t0=$(date +%s)
+      break
+    fi
+    sleep 0.5
+    i=$((i + 1))
+  done
+  if [ -n "$t0" ]; then
+    while kill -0 "$pid" 2>/dev/null && [ $(($(date +%s) - t0)) -lt "$secs" ]; do
+      sleep 0.5
+    done
+  fi
+  STREAM_END=server
+  if kill -0 "$pid" 2>/dev/null; then
+    STREAM_END=timer
+    remote "$client" "sudo -n podman stop -t 15 $STREAM_NAME" >/dev/null 2>&1 || true
+  fi
+  wait "$pid" 2>/dev/null || true
+  STREAM_S=0
+  [ -z "$t0" ] || STREAM_S=$(($(date +%s) - t0))
+}
+
 cmd_run() {
   local server='' saddr='' client='' app='' codec=HEVC res=1920x1080 fps=60
   local bitrate=20000 secs=30 runs=3 variant=baseline out='' label=''
@@ -249,7 +283,7 @@ cmd_run() {
   fi
 
   if [ ! -s "$out" ]; then
-    printf 'ts\thost\tvariant\tworkload\trun\tcodec_req\tbitrate_kbps\t%s\tgpu_busy\thot_thread_pct\treverted\n' \
+    printf 'ts\thost\tvariant\tworkload\trun\tcodec_req\tbitrate_kbps\t%s\tgpu_busy\thot_thread_pct\treverted\tstream_s\tended\n' \
       "$PARSE_COLS" >"$out"
   fi
 
@@ -266,15 +300,16 @@ cmd_run() {
       log=results/logs/$(date -u +%Y%m%dT%H%M%SZ)-$variant-$id.log
       side=${log%.log}.gpu
 
-      remote "$server" "timeout -s TERM $((secs + 10)) sh -s" <<<"$SAMPLER" >"$side" 2>/dev/null &
+      remote "$server" "timeout -s TERM $((secs + 130)) sh -s" <<<"$SAMPLER" >"$side" 2>/dev/null &
       samplerpid=$!
 
-      remote "$client" "timeout -s TERM -k 15 $secs $(podman_base) $cdi \
+      remote "$client" "sudo -n podman rm -f $STREAM_NAME" >/dev/null 2>&1 || true
+      run_stream "$client" "timeout -s TERM -k 15 $((secs + 120)) $(podman_base) --name $STREAM_NAME $cdi \
         -e QT_QPA_EGLFS_KMS_CONFIG=/kms.json -e XDG_CONFIG_HOME=/xdg \
         -v $STATE_DIR/kms.json:/kms.json:ro,Z -v $STATE_DIR/moonlight:/xdg:Z \
         $IMAGE stream $saddr '$app' --resolution $res --fps $fps --bitrate $bitrate \
         --video-codec $codec --video-decoder hardware --display-mode fullscreen --no-quit-after" \
-        2>"$log" >/dev/null || true
+        "$log" "$secs"
 
       kill "$samplerpid" 2>/dev/null || true
       wait "$samplerpid" 2>/dev/null || true
@@ -282,8 +317,9 @@ cmd_run() {
       row=$(parse "$log" | tail -n 1) || echo "streamlab: run $id produced no stats block" >&2
       row=${row:-$(printf '\t\t\t\t\t\t\t\t\t\t\t\t')}
       gpu=$(mean_first_field "$side")
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
-        "$ts" "${label:-$server}" "$variant" "$app" "$id" "$codec" "$bitrate" "$row" "$gpu" >>"$out"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t%s\t%s\n' \
+        "$ts" "${label:-$server}" "$variant" "$app" "$id" "$codec" "$bitrate" "$row" "$gpu" \
+        "$STREAM_S" "$STREAM_END" >>"$out"
       echo "streamlab: run $id recorded in $out"
 
       [ "$k" -eq "$resumes" ] || sleep "$gap"

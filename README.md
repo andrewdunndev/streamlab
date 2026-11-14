@@ -45,6 +45,11 @@ tests/test-run.sh
 tests/test-game.sh
 ```
 
+`--secs` counts from the moment moonlight starts the video stream, not from container
+launch. Each row ends with `stream_s`, the seconds of video, and `ended`: `timer` when
+`--secs` stopped the stream, `server` when the server dropped it first. Result files
+begun before these columns existed keep their old header.
+
 ### Resume
 
 `run --resumes N` streams N times to the same app inside one run without quitting it
