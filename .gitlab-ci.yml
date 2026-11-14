@@ -51,3 +51,4 @@ test:
     - shellcheck -S warning bin/streamlab tests/*.sh
     - bash tests/test-parse.sh
     - bash tests/test-game.sh
+    - bash tests/test-run.sh

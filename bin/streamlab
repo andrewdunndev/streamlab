@@ -211,6 +211,7 @@ mean_first_field() {
 cmd_run() {
   local server='' saddr='' client='' app='' codec=HEVC res=1920x1080 fps=60
   local bitrate=20000 secs=30 runs=3 variant=baseline out='' label=''
+  local resumes=1 gap=2
   while [ $# -gt 0 ]; do
     case $1 in
       --server) server=$2; shift 2 ;;
@@ -223,6 +224,8 @@ cmd_run() {
       --bitrate) bitrate=$2; shift 2 ;;
       --secs) secs=$2; shift 2 ;;
       --runs) runs=$2; shift 2 ;;
+      --resumes) resumes=$2; shift 2 ;;
+      --gap) gap=$2; shift 2 ;;
       --variant) variant=$2; shift 2 ;;
       --out) out=$2; shift 2 ;;
       --label) label=$2; shift 2 ;;
@@ -231,6 +234,8 @@ cmd_run() {
   done
   [ -n "$server" ] && [ -n "$saddr" ] && [ -n "$client" ] && [ -n "$app" ] \
     || die "run: --server, --server-addr, --client and --app are required"
+  case $resumes in '' | *[!0-9]* | 0) die "run: --resumes must be a positive integer" ;; esac
+  case $gap in '' | *[!0-9]*) die "run: --gap must be a whole number of seconds" ;; esac
   [ -n "$out" ] || out=results/$(date -u +%Y%m%dT%H%M%SZ)-$variant.tsv
   mkdir -p "$(dirname "$out")" results/logs
 
@@ -248,37 +253,45 @@ cmd_run() {
       "$PARSE_COLS" >"$out"
   fi
 
-  local n ts log side row gpu
+  local n k id ts log side row gpu samplerpid
   for n in $(seq 1 "$runs"); do
     guard "$server" "$client"
-    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    log=results/logs/$(date -u +%Y%m%dT%H%M%SZ)-$variant-$n.log
-    side=${log%.log}.gpu
+    # Each stream is stopped by signal, which leaves the app running on the
+    # host; the next stream to the same app is then a resume. One quit ends
+    # the run.
+    for k in $(seq 1 "$resumes"); do
+      id=$n
+      [ "$resumes" -eq 1 ] || id=$n.$k
+      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      log=results/logs/$(date -u +%Y%m%dT%H%M%SZ)-$variant-$id.log
+      side=${log%.log}.gpu
 
-    remote "$server" "timeout -s TERM $((secs + 10)) sh -s" <<<"$SAMPLER" >"$side" 2>/dev/null &
-    local samplerpid=$!
+      remote "$server" "timeout -s TERM $((secs + 10)) sh -s" <<<"$SAMPLER" >"$side" 2>/dev/null &
+      samplerpid=$!
 
-    remote "$client" "timeout -s TERM -k 15 $secs $(podman_base) $cdi \
-      -e QT_QPA_EGLFS_KMS_CONFIG=/kms.json -e XDG_CONFIG_HOME=/xdg \
-      -v $STATE_DIR/kms.json:/kms.json:ro,Z -v $STATE_DIR/moonlight:/xdg:Z \
-      $IMAGE stream $saddr '$app' --resolution $res --fps $fps --bitrate $bitrate \
-      --video-codec $codec --video-decoder hardware --display-mode fullscreen --no-quit-after" \
-      2>"$log" >/dev/null || true
+      remote "$client" "timeout -s TERM -k 15 $secs $(podman_base) $cdi \
+        -e QT_QPA_EGLFS_KMS_CONFIG=/kms.json -e XDG_CONFIG_HOME=/xdg \
+        -v $STATE_DIR/kms.json:/kms.json:ro,Z -v $STATE_DIR/moonlight:/xdg:Z \
+        $IMAGE stream $saddr '$app' --resolution $res --fps $fps --bitrate $bitrate \
+        --video-codec $codec --video-decoder hardware --display-mode fullscreen --no-quit-after" \
+        2>"$log" >/dev/null || true
 
-    # The stream was stopped by signal, so the app is still running on the host.
+      kill "$samplerpid" 2>/dev/null || true
+      wait "$samplerpid" 2>/dev/null || true
+
+      row=$(parse "$log" | tail -n 1) || echo "streamlab: run $id produced no stats block" >&2
+      row=${row:-$(printf '\t\t\t\t\t\t\t\t\t\t\t\t')}
+      gpu=$(mean_first_field "$side")
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
+        "$ts" "${label:-$server}" "$variant" "$app" "$id" "$codec" "$bitrate" "$row" "$gpu" >>"$out"
+      echo "streamlab: run $id recorded in $out"
+
+      [ "$k" -eq "$resumes" ] || sleep "$gap"
+    done
+
     remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
       -v $STATE_DIR/moonlight:/xdg:Z $IMAGE quit $saddr" >/dev/null 2>&1 \
       || echo "streamlab: run $n: quit on $server failed" >&2
-
-    kill "$samplerpid" 2>/dev/null || true
-    wait "$samplerpid" 2>/dev/null || true
-
-    row=$(parse "$log" | tail -n 1) || echo "streamlab: run $n produced no stats block" >&2
-    row=${row:-$(printf '\t\t\t\t\t\t\t\t\t\t\t\t')}
-    gpu=$(mean_first_field "$side")
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
-      "$ts" "${label:-$server}" "$variant" "$app" "$n" "$codec" "$bitrate" "$row" "$gpu" >>"$out"
-    echo "streamlab: run $n recorded in $out"
 
     guard "$server" "$client"
   done
