@@ -79,6 +79,7 @@ cat >"$stubs/steam" <<'EOF'
 #!/bin/sh
 : >"$FAKE_DIR/running"
 echo "$@" >>"$FAKE_DIR/launches"
+[ -n "${FAKE_DROP:-}" ] || echo "ExecCommandLine: \"steam\" '$*'" >>"$STEAM_LOG"
 EOF
 cat >"$stubs/xprop" <<'EOF'
 #!/bin/sh
@@ -118,7 +119,7 @@ reset() {
 
 # game ARGS...: runs the driver with the stubs first on PATH
 game() {
-  FAKE_DIR=$work/fake GAME_APPID=1465360 TMPDIR=$work STREAMLAB_STATE=$work/state \
+  FAKE_DIR=$work/fake STEAM_LOG=$work/fake/console_log GAME_APPID=1465360 TMPDIR=$work STREAMLAB_STATE=$work/state \
     PATH=$stubs:$PATH "$bin" game "$@"
 }
 
@@ -182,6 +183,13 @@ check probe_gpu_max 41 "$(field gpu_max)"
 check probe_launch 'steam://rungameid/1465360' "$(cat "$work/fake/launches")"
 check probe_no_baselayer_write '' "$(cat "$work/fake/baselayer" 2>/dev/null)"
 check probe_shot "shot $work/t.png" "$(grep '^shot ' "$work/out")"
+
+reset
+FAKE_DROP=1 FAKE_MODE=live game probe --server s --appid 1465360 --secs 40 --interval 10 --tag t >"$work/out" 2>&1
+check forward_dropped_exit 1 "$?"
+check forward_dropped_msg 'forward dropped: steam ignored steam://rungameid/1465360 (client has run a game, or is not ready; use a fresh lobby)' "$(grep '^forward dropped' "$work/out")"
+check forward_dropped_retried 2 "$(wc -l <"$work/fake/launches" | tr -d ' ')"
+check forward_dropped_no_poll '' "$(grep '^t=' "$work/out")"
 
 reset
 FAKE_MODE=live game probe --server s --appid 1465360 --secs 40 --interval 10 --tag t --baselayer >"$work/out" 2>&1

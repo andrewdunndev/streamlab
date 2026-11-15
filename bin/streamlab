@@ -364,6 +364,22 @@ steam_up() { # max-wait-secs: sets c, pid and envs once Steam and its web helper
     | grep -E '^(DISPLAY|WAYLAND_DISPLAY|GAMESCOPE_WAYLAND_DISPLAY|XDG_RUNTIME_DIR|HOME)=' | tr '\n' ' ')
 }
 x() { sudo -n podman exec -u retro "$c" sh -c "env $envs $1"; }
+steam_log=${STEAM_LOG:-/home/retro/.local/share/Steam/logs/console_log.txt}
+fwd() { # appid: Steam drops a forwarded launch early in startup and after any game exit; confirm it in the console log, retry once
+  for try in 1 2; do
+    n=$(x "wc -l <$steam_log 2>/dev/null || echo 0")
+    x "steam steam://rungameid/$1 >/dev/null 2>&1 &"
+    for _ in $(seq 15); do
+      sleep 1
+      case $(x "tail -n +$((n + 1)) $steam_log 2>/dev/null") in
+        *"ExecCommandLine:"*"steam://rungameid/$1"*) return 0 ;;
+      esac
+    done
+    [ "$try" = 1 ] && sleep 30
+  done
+  echo "forward dropped: steam ignored steam://rungameid/$1 (client has run a game, or is not ready; use a fresh lobby)" >&2
+  exit 1
+}
 gpu() {
   if command -v nvidia-smi >/dev/null; then
     nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -1
@@ -444,7 +460,7 @@ case $verb in
     done
     sleep 20
     echo "steam up after ~${i}s; launching $appid"
-    x "steam steam://rungameid/$appid >/dev/null 2>&1 &"
+    fwd "$appid"
     t=0 ttff=none gmax=0 forced=no f=
     while [ $t -lt "$secs" ]; do
       sleep "$step"
@@ -476,7 +492,7 @@ case $verb in
     appid=$1 exe=$2 tag=$3
     steam_up 300
     sleep 30
-    x "steam steam://rungameid/$appid >/dev/null 2>&1 &"
+    fwd "$appid"
     i=0
     exe_comm "$exe"
     until sudo -n podman exec "$c" pgrep -x -- "$comm" >/dev/null; do
