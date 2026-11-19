@@ -306,7 +306,7 @@ cmd_run() {
   if [ -n "$maxsecs" ]; then
     exec 3>&1 4>&2
     trap 'run_timeout "$client" "$codec" "$app" "$verdict" "$maxsecs"' TERM
-    (sleep "$maxsecs"; kill -TERM $$ 2>/dev/null) &
+    (sleep "$maxsecs" || exit 0; kill -TERM $$ 2>/dev/null) &
     WDPID=$!
     trap stop_watchdog EXIT
   fi
