@@ -58,6 +58,13 @@ check plain_streams 1 "$(count ' stream ')"
 check plain_quits 1 "$(count ' quit ')"
 check plain_runs '1 ' "$(runcol "$work/plain.tsv")"
 
+check plain_no_hdr 0 "$(count ' --hdr')"
+
+: >"$work/calls"
+run --secs 1 --runs 1 --hdr --out hdr.tsv
+check hdr_rc 0 "$?"
+check hdr_flag 1 "$(count ' --video-codec HEVC --hdr ')"
+
 : >"$work/calls"
 : >"$work/sleeps"
 run --secs 1 --runs 2 --resumes 3 --gap 7 --out resume.tsv
@@ -81,6 +88,21 @@ check hang_ended 'timer timer ' "$(col "$work/hang.tsv" ended)"
 check hang_stops 2 "$(count 'podman stop')"
 secs=$(col "$work/hang.tsv" stream_s | awk '{print ($1 >= 2 && $2 >= 2) ? "ok" : "short"}')
 check hang_duration ok "$secs"
+
+hdrv() { # ARGS...: hdr-verify against the stub host; the empty stub probes grade FAIL
+  (cd "$work" && FAKE_DIR=$work PATH=$work/stubs:$PATH "$bin" hdr-verify \
+    --server s --server-addr 10.0.0.1 --client c --app App --secs 3 "$@" >/dev/null 2>&1)
+}
+: >"$work/calls"
+hdrv
+check hdrv_rc 1 "$?"
+check hdrv_dump_hdr 1 "$(count "\\--entrypoint hdr-dump .* 'App' --out /out/dump.h265 --tap /out/tap.h265 --secs 3 .* --hdr")"
+check hdrv_probes 2 "$(count '\--entrypoint ffprobe')"
+check hdrv_quit 1 "$(count ' quit ')"
+: >"$work/calls"
+hdrv --expect-sdr
+check hdrv_sdr_rc 1 "$?"
+check hdrv_sdr_no_hdr 0 "$(count ' --hdr')"
 
 run --secs 1 --resumes 0 --out bad.tsv
 check bad_resumes_rc 1 "$?"

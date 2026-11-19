@@ -23,8 +23,9 @@ Moonlight client for the other.
 - `client/Containerfile`: a pinned Fedora image with moonlight-qt built from source against
   RPM Fusion ffmpeg. The NVIDIA userspace is injected at run time through CDI.
 - `bin/streamlab`: a bash driver run from a workstation over ssh.
+- `client/hdr-dump/`: a headless HEVC dump client on moonlight-common-c, built into the client image; it records the received stream, plus a tap with the SEI common-c drops (`common-c-sei-tap.patch`), and logs the HDR signalling.
 - `scripts/assert-client.sh`: build-time checks for the client image.
-- `tests/`: parser tests against fixture logs, and `streamlab run` and `streamlab game` tests against stub hosts.
+- `tests/`: parser tests against fixture logs, `streamlab run`, `streamlab hdr-verify` and `streamlab game` tests against stub hosts, and HDR grading tests on generated HEVC samples.
 - `results/`: result TSVs, committed per baseline.
 
 ## Use
@@ -43,6 +44,7 @@ bin/streamlab parse results/logs/some-run.log
 tests/test-parse.sh
 tests/test-run.sh
 tests/test-game.sh
+tests/test-hdr.sh
 ```
 
 `--secs` counts from the moment moonlight starts the video stream, not from container
@@ -60,6 +62,25 @@ begun before these columns existed keep their old header.
 between streams, then quits once. Stopping a stream leaves the app running, so every
 stream after the first is a resume. `--gap S` (default 2) pauses between streams. With
 `--resumes` above 1 the `run` column reads `RUN.K`; the default of 1 is unchanged.
+
+### HDR
+
+`run --hdr` adds `--hdr` to the moonlight stream. `hdr-verify` records the stream
+with the headless `hdr-dump` client, probes it with `ffprobe`, and grades four HDR
+criteria, one row each with the observed value; [METHOD.md](METHOD.md) lists them.
+`--expect-sdr` requests SDR and grades Main, 8-bit, BT.709 as the negative control.
+
+```sh
+bin/streamlab hdr-verify --server HOST_A --server-addr ADDR_A --client HOST_B \
+  --app "Test ball" --secs 15
+bin/streamlab hdr-verify --server HOST_A --server-addr ADDR_A --client HOST_B \
+  --app "Test ball" --expect-sdr
+bin/streamlab hdr-verify --dump dump.h265 --log client.log
+```
+
+The last form grades a dump and a client log already in hand, with a local `ffprobe`.
+Logs and probe output go under `results/logs/`, or `--out-dir`. The exit status is 0
+on PASS and 1 on FAIL.
 
 ### Per-game compatibility
 

@@ -1,0 +1,43 @@
+diff --git a/src/VideoDepacketizer.c b/src/VideoDepacketizer.c
+index 5baa1d5..b1dcdd4 100644
+--- a/src/VideoDepacketizer.c
++++ b/src/VideoDepacketizer.c
+@@ -651,6 +651,20 @@ static void queueFragment(PLENTRY_INTERNAL* existingEntry, char* data, int offse
+     }
+ }
+ 
++// Test tap: hands every SEI NAL the depacketizer is about to drop (Annex B
++// start code included) to the hook a test client installs. Never set by a
++// real client, which learns HDR metadata from the 0x010e control message.
++void (*LiSeiTap)(const char* nal, int length) = NULL;
++
++static void tapSeiNal(PBUFFER_DESC buffer) {
++    BUFFER_DESC end = *buffer;
++
++    if (LiSeiTap != NULL) {
++        skipToNextNalOrEnd(&end);
++        LiSeiTap(&buffer->data[buffer->offset], end.offset - buffer->offset);
++    }
++}
++
+ // Process an RTP Payload using the slow path that handles multiple NALUs per packet
+ static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERNAL* existingEntry) {
+     // We should not have any NALUs when processing the first packet in an IDR frame
+@@ -667,6 +681,9 @@ static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERN
+         // these on IDR frames, so the check in processRtpPayload() is not
+         // completely sufficient to handle that case.
+         while (isAccessUnitDelimiter(currentPos) || isSeiNal(currentPos)) {
++            if (isSeiNal(currentPos)) {
++                tapSeiNal(currentPos);
++            }
+             skipToNextNal(currentPos);
+         }
+ 
+@@ -994,6 +1011,7 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
+             // There may be one or more SEI NAL units prepended to the
+             // frame data *after* the (optional) AUD.
+             while (isSeiNal(&currentPos)) {
++                tapSeiNal(&currentPos);
+                 skipToNextNal(&currentPos);
+             }
+         }

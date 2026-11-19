@@ -1,14 +1,14 @@
 # Build and runtime stages share one pinned Fedora so the libraries the
 # binary linked against are the ones it runs with.
-ARG FEDORA=quay.io/fedora/fedora:45@sha256:2f80a0ca2d1ed94d8979b2fc5f766f4ad6763bfdf290eca0de3df862340e7e83
+ARG FEDORA=quay.io/fedora/fedora:45@sha256:be6b79cced86b08794d25024513eaea7e621f3d5dc3c4ca2c4371a5889229706
 
-FROM ${FEDORA} AS build
+FROM ${FEDORA} AS src
 RUN dnf install -y \
       "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
  && dnf install -y --allowerasing \
       gcc-c++ make git pkgconf-pkg-config \
       qt6-qtbase-devel qt6-qtsvg-devel qt6-qtdeclarative-devel \
-      openssl-devel SDL2-devel SDL2_ttf-devel opus-devel \
+      openssl-devel libcurl-devel SDL2-devel SDL2_ttf-devel opus-devel \
       libva-devel libvdpau-devel libdrm-devel pulseaudio-libs-devel alsa-lib-devel \
       libplacebo-devel vulkan-loader-devel wayland-devel \
       ffmpeg-devel \
@@ -19,9 +19,17 @@ ARG MOONLIGHT_VERSION=v6.2.0
 RUN git clone --depth 1 --branch "${MOONLIGHT_VERSION}" --recurse-submodules --shallow-submodules \
       https://github.com/moonlight-stream/moonlight-qt.git /src
 WORKDIR /src
+
+FROM src AS build
 RUN qmake6 PREFIX=/usr/local moonlight-qt.pro \
  && make -j"$(nproc)" release \
  && make install INSTALL_ROOT=/out
+
+# hdr-dump links the moonlight-common-c that moonlight-qt pins as a submodule.
+FROM src AS hdrdump
+COPY client/hdr-dump/ /hdr-dump/
+RUN mkdir -p /out/usr/local/bin \
+ && /hdr-dump/build.sh /src/moonlight-common-c/moonlight-common-c /out/usr/local/bin/hdr-dump
 
 FROM ${FEDORA}
 RUN dnf install -y \
@@ -32,9 +40,10 @@ RUN dnf install -y \
       pulseaudio-libs alsa-lib libplacebo vulkan-loader mesa-libgbm mesa-libEGL \
       dejavu-sans-fonts \
       mesa-dri-drivers mesa-vulkan-drivers mesa-va-drivers-freeworld \
-      libva-utils vulkan-tools ffmpeg-libs ffmpeg \
+      libva-utils vulkan-tools ffmpeg-libs ffmpeg libcurl \
  && dnf clean all
 COPY --from=build /out/ /
+COPY --from=hdrdump /out/ /
 COPY scripts/assert-client.sh /tmp/assert-client.sh
 RUN sh /tmp/assert-client.sh && rm -f /tmp/assert-client.sh
 
