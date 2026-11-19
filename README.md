@@ -50,6 +50,10 @@ launch. Each row ends with `stream_s`, the seconds of video, and `ended`: `timer
 `--secs` stopped the stream, `server` when the server dropped it first. Result files
 begun before these columns existed keep their old header.
 
+### Watchdog and verdict
+
+`run --max-seconds N` is a hard limit on the whole run: at N seconds the client stream is stopped and the command exits 124. `run --verdict` prints one final line, `VERDICT PASS|FAIL|HANG codec=.. app=.. frames=.. encoder=.. reason=.. log=..`, and exits 1 on FAIL. FAIL reasons are `no-stats` (no stats block in the client log) and `no-frames` (decoded frame rate 0); HANG means `--max-seconds` fired. An `STREAMLAB_IMAGE` starting with `localhost/` is a local build: it is checked on the client host and never pulled.
+
 ### Resume
 
 `run --resumes N` streams N times to the same app inside one run without quitting it
