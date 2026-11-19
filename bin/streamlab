@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # streamlab: drive a Wolf host and a Moonlight client host over ssh.
-# usage: streamlab guard HOST... | pair ... | run ... | game VERB ... | parse LOG
+# usage: streamlab guard HOST... | pair ... | run ... | hdr-verify ... | game VERB ... | parse LOG
 set -euo pipefail
 
 # Wolf API field names, from the live openapi-schema. Fix here only.
@@ -270,7 +270,7 @@ run_timeout() { # client codec app verdict maxsecs
 cmd_run() {
   local server='' saddr='' client='' app='' codec=HEVC res=1920x1080 fps=60
   local bitrate=20000 secs=30 runs=3 variant=baseline out='' label=''
-  local resumes=1 gap=2 maxsecs='' verdict=0
+  local resumes=1 gap=2 maxsecs='' verdict=0 hdr=''
   while [ $# -gt 0 ]; do
     case $1 in
       --server) server=$2; shift 2 ;;
@@ -285,6 +285,7 @@ cmd_run() {
       --runs) runs=$2; shift 2 ;;
       --resumes) resumes=$2; shift 2 ;;
       --gap) gap=$2; shift 2 ;;
+      --hdr) hdr=" --hdr"; shift ;;
       --variant) variant=$2; shift 2 ;;
       --out) out=$2; shift 2 ;;
       --label) label=$2; shift 2 ;;
@@ -346,7 +347,7 @@ cmd_run() {
         -e QT_QPA_EGLFS_KMS_CONFIG=/kms.json -e XDG_CONFIG_HOME=/xdg \
         -v $STATE_DIR/kms.json:/kms.json:ro,Z -v $STATE_DIR/moonlight:/xdg:Z \
         $IMAGE stream $saddr '$app' --resolution $res --fps $fps --bitrate $bitrate \
-        --video-codec $codec --video-decoder hardware --display-mode fullscreen --no-quit-after" \
+        --video-codec $codec$hdr --video-decoder hardware --display-mode fullscreen --no-quit-after" \
         "$log" "$secs"
 
       kill "$samplerpid" 2>/dev/null || true
@@ -388,6 +389,142 @@ cmd_run() {
       return 1
     fi
   fi
+}
+
+# ffprobe arguments for the dump. The frame read is capped: the SEI rides
+# the first IDR.
+PROBE_STREAMS=(-v error -f hevc -select_streams v:0 -show_streams -of json)
+PROBE_FRAMES=(-v error -f hevc -select_streams v:0 -show_frames -read_intervals '%+#30' -of json)
+
+# Grades one dump against the HDR pass criteria and prints a verdict line
+# then one row per criterion with the observed value. Returns 1 on any FAIL.
+#   c1 serverinfo offers HEVC Main10 and the client negotiated it (client log)
+#   c2 the stream is Main 10, yuv420p10le, PQ, BT.2020 (ffprobe streams)
+#   c3 mastering display and content light SEI in the frames (ffprobe frames)
+#   c4 the 0x010e HDR mode enable and non-zero metadata (client log)
+#   c5 with --expect-sdr, the stream is Main, 8-bit, BT.709 instead of c1-c4
+hdr_evaluate() { # log streams.json frames.json expect_sdr
+  local log=$1 streams=$2 frames=$3 sdr=$4
+  local rows='' fails=0 total=0
+  local want_main10='profile=Main 10 pix_fmt=yuv420p10le transfer=smpte2084 primaries=bt2020 matrix=bt2020nc'
+  local want_sdr='profile=Main pix_fmt=yuv420p transfer=bt709'
+  local want_scm=0x200 want_enable=1
+  local sei_mastering='Mastering display metadata' sei_cll='Content light level metadata'
+
+  row() { # status id name observed
+    rows+=$(printf '  %-4s c%s  %-12s %s' "$1" "$2" "$3" "$4")$'\n'
+    total=$((total + 1))
+    [ "$1" = PASS ] || fails=$((fails + 1))
+  }
+  has_sei() { case ",$types," in *",$1,"*) return 0 ;; esac; return 1; }
+  stream_obs() { jq -r '.streams[0] | "profile=\(.profile // "unset") pix_fmt=\(.pix_fmt // "unset") transfer=\(.color_transfer // "unset") primaries=\(.color_primaries // "unset") matrix=\(.color_space // "unset")"' "$streams" 2>/dev/null || echo 'no ffprobe streams output'; }
+
+  local obs
+  if [ "$sdr" = 1 ]; then
+    obs=$(stream_obs | sed 's/ primaries=.*//')
+    # An encoder that writes no colour VUI leaves the transfer unset, which
+    # decoders read as BT.709 for HD; only a named HDR transfer is a failure.
+    if [ "${obs/transfer=unset/transfer=bt709}" = "$want_sdr" ]; then row PASS 5 sdr-control "$obs"; else row FAIL 5 sdr-control "$obs (want $want_sdr)"; fi
+  else
+    local scm fmt
+    scm=$(sed -n 's/^SERVERINFO .*codec_mode=\(0x[0-9a-f]*\).*/\1/p' "$log" | tail -n 1)
+    fmt=$(sed -n 's/^NEGOTIATED .*format=\(0x[0-9a-f]*\).*/\1/p' "$log" | tail -n 1)
+    if [ -z "$scm" ] || [ -z "$fmt" ]; then
+      row FAIL 1 negotiation "serverinfo=${scm:-none} negotiated=${fmt:-none} (client log lacks the line)"
+    elif [ $((scm & want_scm)) -ne 0 ] && [ $((fmt)) -eq $((want_scm)) ]; then
+      row PASS 1 negotiation "serverinfo=$scm negotiated=$fmt"
+    else
+      row FAIL 1 negotiation "serverinfo=$scm negotiated=$fmt (want $want_scm in both)"
+    fi
+
+    obs=$(stream_obs)
+    if [ "$obs" = "$want_main10" ]; then row PASS 2 stream "$obs"; else row FAIL 2 stream "$obs (want $want_main10)"; fi
+
+    local types nframes
+    types=$(jq -r '[.frames[]?.side_data_list[]?.side_data_type] | unique | join(",")' "$frames" 2>/dev/null) || types=''
+    nframes=$(jq -r '.frames | length' "$frames" 2>/dev/null) || nframes=0
+    if has_sei "$sei_mastering" && has_sei "$sei_cll"; then
+      row PASS 3 sei "frames=$nframes side_data=$types"
+    else
+      row FAIL 3 sei "frames=$nframes side_data=${types:-none} (want $sei_mastering and $sei_cll)"
+    fi
+
+    local en nz
+    en=$(sed -n 's/^HDR_MODE enable=\([01]\).*/\1/p' "$log" | tail -n 1)
+    nz=$(grep -c '^HDR_META .*valid=1 nonzero=1' "$log" || true)
+    if [ -z "$en" ]; then
+      row FAIL 4 hdr-mode "no HDR_MODE line in the client log (the server never sent 0x010e)"
+    elif [ "$en" = "$want_enable" ] && [ "$nz" -gt 0 ]; then
+      row PASS 4 hdr-mode "enable=$en metadata_nonzero_lines=$nz"
+    else
+      row FAIL 4 hdr-mode "enable=$en metadata_nonzero_lines=$nz (want enable=$want_enable and non-zero metadata)"
+    fi
+  fi
+
+  local mode=hdr verdict=PASS
+  if [ "$sdr" = 1 ]; then mode="sdr-control"; fi
+  [ "$fails" -eq 0 ] || verdict=FAIL
+  printf 'hdr-verify: %s %s %d/%d\n' "$verdict" "$mode" $((total - fails)) "$total"
+  printf '%s' "$rows"
+  [ "$fails" -eq 0 ]
+}
+
+cmd_hdr_verify() {
+  local server='' saddr='' client='' app='' res=1920x1080 fps=60 bitrate=20000 secs=15
+  local sdr=0 dump='' log='' outdir=results/logs
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --server) server=$2; shift 2 ;;
+      --server-addr) saddr=$2; shift 2 ;;
+      --client) client=$2; shift 2 ;;
+      --app) app=$2; shift 2 ;;
+      --res) res=$2; shift 2 ;;
+      --fps) fps=$2; shift 2 ;;
+      --bitrate) bitrate=$2; shift 2 ;;
+      --secs) secs=$2; shift 2 ;;
+      --expect-sdr) sdr=1; shift ;;
+      --dump) dump=$2; shift 2 ;;
+      --log) log=$2; shift 2 ;;
+      --out-dir) outdir=$2; shift 2 ;;
+      *) die "hdr-verify: unknown option $1" ;;
+    esac
+  done
+  case $secs in '' | *[!0-9]* | 0) die "hdr-verify: --secs must be a positive integer" ;; esac
+
+  local stamp base
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  mkdir -p "$outdir"
+  base=$outdir/$stamp-hdr-verify
+  [ "$sdr" = 0 ] || base=$base-sdr
+
+  if [ -n "$dump" ]; then
+    # Offline: grade a dump and a client log already in hand. Local ffprobe.
+    [ -r "$dump" ] || die "hdr-verify: cannot read '$dump'"
+    [ "$sdr" = 1 ] || [ -r "$log" ] || die "hdr-verify: --dump needs a readable --log"
+    ffprobe "${PROBE_STREAMS[@]}" "$dump" >"$base.streams.json" || die "hdr-verify: ffprobe failed on $dump"
+    ffprobe "${PROBE_FRAMES[@]}" "$dump" >"$base.frames.json" || die "hdr-verify: ffprobe failed on $dump"
+  else
+    [ -n "$server" ] && [ -n "$saddr" ] && [ -n "$client" ] && [ -n "$app" ] \
+      || die "hdr-verify: --server, --server-addr, --client and --app are required (or --dump and --log)"
+    guard "$server" "$client"
+    pull_image "$client"
+    log=$base.log
+    local hdrflag='--hdr'
+    [ "$sdr" = 0 ] || hdrflag=''
+    remote "$client" "sudo -n mkdir -p $STATE_DIR/moonlight $STATE_DIR/hdr && sudo -n rm -f $STATE_DIR/hdr/dump.h265"
+    remote "$client" "timeout -s TERM -k 15 $((secs + 120)) $(podman_base) -e XDG_CONFIG_HOME=/xdg \
+      -v $STATE_DIR/moonlight:/xdg:Z -v $STATE_DIR/hdr:/out:Z --entrypoint hdr-dump \
+      $IMAGE $saddr '$app' --out /out/dump.h265 --secs $secs --res $res --fps $fps --bitrate $bitrate $hdrflag" \
+      2>"$log" >/dev/null || echo "streamlab: hdr-dump exited non-zero; see $log" >&2
+    local probe="sudo -n podman run --rm -v $STATE_DIR/hdr:/out:ro,Z --entrypoint ffprobe $IMAGE"
+    remote "$client" "$probe $(printf "%q " "${PROBE_STREAMS[@]}") /out/dump.h265" >"$base.streams.json" 2>/dev/null || true
+    remote "$client" "$probe $(printf "%q " "${PROBE_FRAMES[@]}") /out/dump.h265" >"$base.frames.json" 2>/dev/null || true
+    remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
+      -v $STATE_DIR/moonlight:/xdg:Z $IMAGE quit $saddr" >/dev/null 2>&1 \
+      || echo "streamlab: hdr-verify: quit on $server failed" >&2
+    guard "$server" "$client"
+  fi
+  hdr_evaluate "$log" "$base.streams.json" "$base.frames.json" "$sdr"
 }
 
 # Runs on the Wolf host through `sh -s -- VERB ARGS...`; sock and pdata are
@@ -794,9 +931,10 @@ main() {
     guard) guard "$@" ;;
     pair) cmd_pair "$@" ;;
     run) cmd_run "$@" ;;
+    hdr-verify) cmd_hdr_verify "$@" ;;
     game) cmd_game "$@" ;;
     parse) parse "$@" ;;
-    *) echo "usage: streamlab guard HOST... | pair | run | game | parse LOG" >&2; exit 2 ;;
+    *) echo "usage: streamlab guard HOST... | pair | run | hdr-verify | game | parse LOG" >&2; exit 2 ;;
   esac
 }
 

@@ -97,8 +97,42 @@ window.
 
 ## Tier 2: HDR
 
-HDR is a later track. The first goal is a stream that works without
-problems. HDR needs an HDR-capable server path, a client that sets the
-connector's colorspace and metadata, and a display or plug whose EDID
-advertises HDR. Whether the dummy plug advertises it is unverified. The track starts
-once the baseline is stable, and its fixes go upstream.
+HDR is a later track; the first goal is a stream that works without problems.
+Three things must line up: a server path that encodes HDR, a client that sets
+the connector's colorspace and metadata, and a display or plug whose EDID
+advertises HDR.
+
+The dummy plug on both hosts advertises it. The EDID EOTF support mask reads
+`0b1101` (SDR, PQ, HLG) and the colorimetry block lists BT.2020 RGB and YCC,
+identical on both plugs (n=2). Whether the client's eglfs renderer drives
+HDR_OUTPUT_METADATA through the plug and driver is unmeasured.
+
+`streamlab hdr-verify` tests the server and stream without a display. It runs
+`hdr-dump`, a headless client in the client image built on the
+moonlight-common-c that moonlight-qt pins. The client requests HEVC with
+HDR, writes the received video as raw Annex-B HEVC, and logs what the server
+offered and signalled. `ffprobe` then reads the dump. The verb grades four
+criteria and prints a verdict line plus one row per criterion with the
+observed value:
+
+1. Negotiation: `serverinfo` offers HEVC Main10 (`ServerCodecModeSupport` has
+   `0x200`) and the client negotiated format `0x0200`.
+2. Stream: `ffprobe -show_streams` reads profile Main 10, `yuv420p10le`,
+   `smpte2084`, `bt2020` primaries and `bt2020nc` matrix.
+3. In-band metadata: `ffprobe -show_frames` shows mastering display and
+   content light level side data, from the stream's SEI.
+4. Out-of-band metadata: the control stream carried 0x010e with enable set and
+   non-zero metadata. This channel is independent of 3.
+
+The server's ANNOUNCE (`dynamicRangeMode=1`) is in Wolf's log, not the
+client's, so the verb does not read it.
+
+The negative control, `--expect-sdr`, asks for an SDR stream and grades one
+criterion: Main, 8-bit, BT.709. A run against a server with no HDR path
+requested with `--hdr` fails criterion 1, so the assertions are shown able to
+fail. `tests/test-hdr.sh` runs the grading on generated HEVC samples, one
+HDR10 and one SDR, and flips each expected value in a copy of the driver to
+check the matching row goes red.
+
+The dump client does not verify the server certificate; pairing already
+established trust, and the run is on a lab network.

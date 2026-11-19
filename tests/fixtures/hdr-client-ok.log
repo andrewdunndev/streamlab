@@ -1,0 +1,9 @@
+SERVERINFO codec_mode=0x301 appversion=7.1.431.-1 gfe=3.23.0.74 hdr_requested=1
+lib: Initializing platform...done
+NEGOTIATED format=0x0200 width=1920 height=1080 fps=60
+STARTED
+HDR_MODE enable=1
+HDR_META when=callback valid=1 nonzero=1 prim=34000,16000/13250,34500/7500,3000 white=15635,16450 max_display=1000 min_display=1 max_cll=1000 max_fall=400 max_full_frame=0
+FRAME0 hdr_active=1 colorspace=2
+HDR_META when=end valid=1 nonzero=1 prim=34000,16000/13250,34500/7500,3000 white=15635,16450 max_display=1000 min_display=1 max_cll=1000 max_fall=400 max_full_frame=0
+SUMMARY frames=900 bytes=11534336
