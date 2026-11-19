@@ -110,7 +110,8 @@ addr_of() { # client server-addr: the client address as the server sees it
   remote "$1" "ip -4 route get $2" | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i + 1); exit}}'
 }
 
-pull_image() {
+pull_image() { # a localhost/ tag is a local build and is never pulled
+  case $IMAGE in localhost/*) remote "$1" "sudo -n podman image exists $IMAGE" || die "image $IMAGE is not on $1"; return ;; esac
   remote "$1" "sudo -n podman pull -q $IMAGE" >/dev/null
 }
 
@@ -248,10 +249,28 @@ run_stream() { # client remote-cmd log secs
   [ -z "$t0" ] || STREAM_S=$(($(date +%s) - t0))
 }
 
+WDPID=
+stop_watchdog() { # the sleep child goes first so it cannot hold a pipe open
+  [ -z "${WDPID:-}" ] || { pkill -P "$WDPID" 2>/dev/null || true; kill "$WDPID" 2>/dev/null || true; WDPID=; }
+  return 0
+}
+
+verdict_line() { # PASS|FAIL|HANG codec app fps decoder detail
+  printf 'VERDICT %s codec=%s app=%s fps=%s decoder=%s %s\n' "$1" "$2" "$3" "${4:-0}" "${5:--}" "${6:-}"
+}
+
+run_timeout() { # client codec app verdict maxsecs
+  trap '' TERM
+  remote "$1" "sudo -n podman rm -f $STREAM_NAME" >/dev/null 2>&1 || true
+  echo "streamlab: run: --max-seconds $5 exceeded" >&4
+  [ "$4" -eq 0 ] || verdict_line HANG "$2" "$3" 0 - "reason=timeout" >&3
+  exit 124
+}
+
 cmd_run() {
   local server='' saddr='' client='' app='' codec=HEVC res=1920x1080 fps=60
   local bitrate=20000 secs=30 runs=3 variant=baseline out='' label=''
-  local resumes=1 gap=2
+  local resumes=1 gap=2 maxsecs='' verdict=0
   while [ $# -gt 0 ]; do
     case $1 in
       --server) server=$2; shift 2 ;;
@@ -269,6 +288,8 @@ cmd_run() {
       --variant) variant=$2; shift 2 ;;
       --out) out=$2; shift 2 ;;
       --label) label=$2; shift 2 ;;
+      --max-seconds) maxsecs=$2; shift 2 ;;
+      --verdict) verdict=1; shift ;;
       *) die "run: unknown option $1" ;;
     esac
   done
@@ -276,8 +297,19 @@ cmd_run() {
     || die "run: --server, --server-addr, --client and --app are required"
   case $resumes in '' | *[!0-9]* | 0) die "run: --resumes must be a positive integer" ;; esac
   case $gap in '' | *[!0-9]*) die "run: --gap must be a whole number of seconds" ;; esac
+  case $maxsecs in *[!0-9]* | 0) die "run: --max-seconds must be a positive integer" ;; esac
   [ -n "$out" ] || out=results/$(date -u +%Y%m%dT%H%M%SZ)-$variant.tsv
   mkdir -p "$(dirname "$out")" results/logs
+
+  # The watchdog TERMs this shell at the deadline; the trap stops the client
+  # stream, prints the verdict and exits 124.
+  if [ -n "$maxsecs" ]; then
+    exec 3>&1 4>&2
+    trap 'run_timeout "$client" "$codec" "$app" "$verdict" "$maxsecs"' TERM
+    (sleep "$maxsecs" || exit 0; kill -TERM $$ 2>/dev/null) &
+    WDPID=$!
+    trap stop_watchdog EXIT
+  fi
 
   guard "$server" "$client"
   pull_image "$client"
@@ -293,7 +325,7 @@ cmd_run() {
       "$PARSE_COLS" >"$out"
   fi
 
-  local n k id ts log side row gpu samplerpid
+  local n k id ts log side row gpu samplerpid vfps vdec vcodec vlog='' vreason=''
   for n in $(seq 1 "$runs"); do
     guard "$server" "$client"
     # Each stream is stopped by signal, which leaves the app running on the
@@ -327,6 +359,12 @@ cmd_run() {
         "$ts" "${label:-$server}" "$variant" "$app" "$id" "$codec" "$bitrate" "$row" "$gpu" \
         "$STREAM_S" "$STREAM_END" >>"$out"
       echo "streamlab: run $id recorded in $out"
+      vfps=$(printf '%s' "$row" | cut -f3)
+      vdec=$(printf '%s' "$row" | cut -f13)
+      vcodec=$(printf '%s' "$row" | cut -f12)
+      if [ -z "$vfps" ]; then vreason=${vreason:-no-stats}
+      elif awk -v v="$vfps" 'BEGIN{exit !(v+0 <= 0)}'; then vreason=${vreason:-no-frames}; fi
+      vlog=$log
 
       [ "$k" -eq "$resumes" ] || sleep "$gap"
     done
@@ -337,6 +375,19 @@ cmd_run() {
 
     guard "$server" "$client"
   done
+
+  if [ -n "$WDPID" ]; then
+    trap - TERM
+    stop_watchdog
+  fi
+  if [ "$verdict" -eq 1 ]; then
+    if [ -z "$vreason" ]; then
+      verdict_line PASS "$vcodec" "$app" "$vfps" "$vdec" "log=$vlog"
+    else
+      verdict_line FAIL "${vcodec:-$codec}" "$app" "${vfps:-0}" "$vdec" "reason=$vreason log=$vlog"
+      return 1
+    fi
+  fi
 }
 
 # Runs on the Wolf host through `sh -s -- VERB ARGS...`; sock and pdata are

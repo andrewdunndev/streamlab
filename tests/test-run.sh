@@ -85,4 +85,36 @@ check hang_duration ok "$secs"
 run --secs 1 --resumes 0 --out bad.tsv
 check bad_resumes_rc 1 "$?"
 
+vout=$(cd "$work" && FAKE_DIR=$work PATH=$work/stubs:$PATH "$bin" run --server s --server-addr 10.0.0.1 \
+  --client c --app App --secs 1 --runs 1 --verdict --out v.tsv 2>"$work/err.txt")
+check verdict_rc 0 "$?"
+check verdict_pass 'VERDICT PASS' "$(printf '%s' "$vout" | grep '^VERDICT' | cut -d' ' -f1-2)"
+
+cp "$work/stats.log" "$work/stats.good"
+: >"$work/stats.log"
+vout=$(cd "$work" && FAKE_DIR=$work PATH=$work/stubs:$PATH "$bin" run --server s --server-addr 10.0.0.1 \
+  --client c --app App --secs 1 --runs 1 --verdict --out v2.tsv 2>"$work/err.txt")
+check verdict_fail_rc 1 "$?"
+check verdict_fail 'VERDICT FAIL' "$(printf '%s' "$vout" | grep '^VERDICT' | cut -d' ' -f1-2)"
+cp "$work/stats.good" "$work/stats.log"
+
+vout=$(cd "$work" && FAKE_DIR=$work FAKE_HANG=1 PATH=$work/stubs:$PATH "$bin" run --server s --server-addr 10.0.0.1 \
+  --client c --app App --secs 60 --runs 1 --max-seconds 5 --verdict --out v3.tsv 2>"$work/err.txt")
+check watchdog_rc 124 "$?"
+check watchdog_hang 'VERDICT HANG' "$(printf '%s' "$vout" | grep '^VERDICT' | cut -d' ' -f1-2)"
+
+run --secs 1 --max-seconds 0 --out bad2.tsv
+check bad_maxsecs_rc 1 "$?"
+
+check verdict_fields 'fps= decoder=' "$(printf '%s' "$vout" | grep -o 'fps=\|decoder=' | tr '\n' ' ' | sed 's/ $//')"
+check verdict_no_old_fields 0 "$(printf '%s' "$vout" | grep -c 'frames=\|encoder=')"
+
+# A finished run must not leave the watchdog's sleep holding a pipe open.
+mkdir -p "$work/real"
+cp "$work/stubs/ssh" "$work/real/ssh"
+t0=$SECONDS
+(cd "$work" && FAKE_DIR=$work PATH=$work/real:$PATH "$bin" run --server s --server-addr 10.0.0.1 \
+  --client c --app App --secs 1 --runs 1 --max-seconds 40 --verdict --out v4.tsv 2>/dev/null | cat >/dev/null)
+check watchdog_pipe_released ok "$([ $((SECONDS - t0)) -lt 20 ] && echo ok || echo held)"
+
 exit "$fail"
