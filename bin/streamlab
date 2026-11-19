@@ -427,8 +427,8 @@ hdr_evaluate() { # log streams.json frames.json expect_sdr
     if [ "${obs/transfer=unset/transfer=bt709}" = "$want_sdr" ]; then row PASS 5 sdr-control "$obs"; else row FAIL 5 sdr-control "$obs (want $want_sdr)"; fi
   else
     local scm fmt
-    scm=$(sed -n 's/^SERVERINFO .*codec_mode=\(0x[0-9a-f]*\).*/\1/p' "$log" | tail -n 1)
-    fmt=$(sed -n 's/^NEGOTIATED .*format=\(0x[0-9a-f]*\).*/\1/p' "$log" | tail -n 1)
+    scm=$(sed -n 's/.*SERVERINFO .*codec_mode=\(0x[0-9a-f]*\).*/\1/p' "$log" | tail -n 1)
+    fmt=$(sed -n 's/.*NEGOTIATED .*format=\(0x[0-9a-f]*\).*/\1/p' "$log" | tail -n 1)
     if [ -z "$scm" ] || [ -z "$fmt" ]; then
       row FAIL 1 negotiation "serverinfo=${scm:-none} negotiated=${fmt:-none} (client log lacks the line)"
     elif [ $((scm & want_scm)) -ne 0 ] && [ $((fmt)) -eq $((want_scm)) ]; then
@@ -450,8 +450,8 @@ hdr_evaluate() { # log streams.json frames.json expect_sdr
     fi
 
     local en nz
-    en=$(sed -n 's/^HDR_MODE enable=\([01]\).*/\1/p' "$log" | tail -n 1)
-    nz=$(grep -c '^HDR_META .*valid=1 nonzero=1' "$log" || true)
+    en=$(sed -n 's/.*HDR_MODE enable=\([01]\).*/\1/p' "$log" | tail -n 1)
+    nz=$(grep -c 'HDR_META .*valid=1 nonzero=1' "$log" || true)
     if [ -z "$en" ]; then
       row FAIL 4 hdr-mode "no HDR_MODE line in the client log (the server never sent 0x010e)"
     elif [ "$en" = "$want_enable" ] && [ "$nz" -gt 0 ]; then
