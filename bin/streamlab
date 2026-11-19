@@ -249,8 +249,14 @@ run_stream() { # client remote-cmd log secs
   [ -z "$t0" ] || STREAM_S=$(($(date +%s) - t0))
 }
 
-verdict_line() { # PASS|FAIL|HANG codec app frames encoder detail
-  printf 'VERDICT %s codec=%s app=%s frames=%s encoder=%s %s\n' "$1" "$2" "$3" "${4:-0}" "${5:--}" "${6:-}"
+WDPID=
+stop_watchdog() { # the sleep child goes first so it cannot hold a pipe open
+  [ -z "${WDPID:-}" ] || { pkill -P "$WDPID" 2>/dev/null || true; kill "$WDPID" 2>/dev/null || true; WDPID=; }
+  return 0
+}
+
+verdict_line() { # PASS|FAIL|HANG codec app fps decoder detail
+  printf 'VERDICT %s codec=%s app=%s fps=%s decoder=%s %s\n' "$1" "$2" "$3" "${4:-0}" "${5:--}" "${6:-}"
 }
 
 run_timeout() { # client codec app verdict maxsecs
@@ -297,12 +303,12 @@ cmd_run() {
 
   # The watchdog TERMs this shell at the deadline; the trap stops the client
   # stream, prints the verdict and exits 124.
-  local wdpid=''
   if [ -n "$maxsecs" ]; then
     exec 3>&1 4>&2
     trap 'run_timeout "$client" "$codec" "$app" "$verdict" "$maxsecs"' TERM
     (sleep "$maxsecs"; kill -TERM $$ 2>/dev/null) &
-    wdpid=$!
+    WDPID=$!
+    trap stop_watchdog EXIT
   fi
 
   guard "$server" "$client"
@@ -370,9 +376,9 @@ cmd_run() {
     guard "$server" "$client"
   done
 
-  if [ -n "$wdpid" ]; then
+  if [ -n "$WDPID" ]; then
     trap - TERM
-    kill "$wdpid" 2>/dev/null || true
+    stop_watchdog
   fi
   if [ "$verdict" -eq 1 ]; then
     if [ -z "$vreason" ]; then
