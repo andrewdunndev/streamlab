@@ -26,7 +26,7 @@ build-image:
 build-check:
   stage: build
   # renovate: datasource=docker depName=quay.io/buildah/stable
-  image: quay.io/buildah/stable:v1.45.1-immutable@sha256:e5a33092657823b0830186ea525054cf4cdeef29b6a44833444c59d86f561f29
+  image: quay.io/buildah/stable:v1.46.1-immutable@sha256:12132e724a8a5c7e6970c3fced03f3db6c8077d9afa08803df274df4cf3de846
   variables:
     BUILDAH_ISOLATION: chroot
     BUILDAH_FORMAT: oci
