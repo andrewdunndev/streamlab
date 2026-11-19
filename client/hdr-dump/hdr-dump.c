@@ -11,6 +11,11 @@
  *   HDR_META when=callback|end valid=0|1 nonzero=0|1 ...
  *   FRAME0 hdr_active=0|1 colorspace=N
  *   SUMMARY frames=N bytes=N
+ *
+ * --tap FILE writes the same stream with the SEI NALs moonlight-common-c
+ * drops (needs common-c-sei-tap.patch, applied by build.sh). Real clients
+ * get HDR metadata from control message 0x010e, not from the SEI; the tap
+ * exists to check what the encoder wrote.
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -33,7 +38,11 @@
 #define HTTPS_PORT_DEFAULT 47984
 
 static volatile int terminated;
-static FILE *dump;
+static FILE *dump, *tap;
+/* SEI NALs the depacketizer dropped for the frame being assembled. */
+static char sei_buf[16384];
+static int sei_len;
+extern void (*LiSeiTap)(const char *nal, int length);
 static unsigned long frames, bytes;
 static int hdr_requested;
 
@@ -271,13 +280,28 @@ static void dr_noop(void)
 {
 }
 
+/* Runs on the receive thread, which also calls dr_submit (direct submit). */
+static void sei_tap(const char *nal, int length)
+{
+    if (sei_len + length <= (int)sizeof sei_buf) {
+        memcpy(sei_buf + sei_len, nal, (size_t)length);
+        sei_len += length;
+    }
+}
+
 static int dr_submit(PDECODE_UNIT du)
 {
+    if (tap && sei_len > 0) {
+        fwrite(sei_buf, 1, (size_t)sei_len, tap);
+        sei_len = 0;
+    }
     if (frames == 0)
         fprintf(stderr, "FRAME0 hdr_active=%d colorspace=%d\n", du->hdrActive ? 1 : 0, du->colorspace);
     for (PLENTRY e = du->bufferList; e; e = e->next) {
         if (fwrite(e->data, 1, (size_t)e->length, dump) != (size_t)e->length)
             die("short write to the dump file");
+        if (tap)
+            fwrite(e->data, 1, (size_t)e->length, tap);
         bytes += (unsigned long)e->length;
     }
     frames++;
@@ -302,7 +326,7 @@ static void ar_play(char *d, int n)
 static void usage(void)
 {
     fputs("usage: hdr-dump HOST APP --out FILE [--secs N] [--res WxH] [--fps N] [--bitrate KBPS]\n"
-          "                [--hdr] [--conf FILE]\n"
+          "                [--hdr] [--conf FILE] [--tap FILE]\n"
           "       hdr-dump --version\n",
           stderr);
     exit(2);
@@ -310,7 +334,7 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-    const char *host = NULL, *app = NULL, *out = NULL, *conf = NULL;
+    const char *host = NULL, *app = NULL, *out = NULL, *conf = NULL, *tapfile = NULL;
     int secs = 15, w = 1920, h = 1080, fps = 60, bitrate = 20000;
 
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
@@ -329,6 +353,8 @@ int main(int argc, char **argv)
             fps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc)
             bitrate = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--tap") && i + 1 < argc)
+            tapfile = argv[++i];
         else if (!strcmp(argv[i], "--conf") && i + 1 < argc)
             conf = argv[++i];
         else if (!strcmp(argv[i], "--hdr"))
@@ -443,6 +469,12 @@ int main(int argc, char **argv)
     if (!rtsp)
         die("no sessionUrl0 in the launch response");
 
+    if (tapfile) {
+        tap = fopen(tapfile, "wb");
+        if (!tap)
+            die("cannot open %s", tapfile);
+        LiSeiTap = sei_tap;
+    }
     dump = fopen(out, "wb");
     if (!dump)
         die("cannot open %s", out);
@@ -494,6 +526,8 @@ int main(int argc, char **argv)
     log_hdr_meta("end");
     LiStopConnection();
     fclose(dump);
+    if (tap)
+        fclose(tap);
     fprintf(stderr, "SUMMARY frames=%lu bytes=%lu\n", frames, bytes);
     return frames > 0 ? 0 : 3;
 }

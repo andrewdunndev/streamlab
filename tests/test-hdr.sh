@@ -31,6 +31,10 @@ gen "$work/sdr.h265" yuv420p 'repeat-headers=1:colorprim=bt709:transfer=bt709:co
 gen "$work/sdr-novui.h265" yuv420p 'repeat-headers=1' \
   || { echo "FAIL generate sdr no-vui sample"; exit 1; }
 
+# The common-c dump has no SEI; the tap does. c3 must read the tap.
+ffmpeg -v error -i "$work/hdr.h265" -c copy -bsf:v filter_units=remove_types=39\|40 -f hevc "$work/hdr-nosei.h265" \
+  || { echo "FAIL strip sei"; exit 1; }
+
 # Prints the verdict word, rows' statuses and the exit code of one evaluation.
 verdict() { # bin dump log [--expect-sdr]
   local b=$1 d=$2 l=$3 out rc
@@ -51,6 +55,12 @@ check sdr_sample_as_hdr "hdr-verify: FAIL hdr 2/4|PASS FAIL FAIL PASS |1" "$(ver
 check hdr_sample_expect_sdr "hdr-verify: FAIL sdr-control 0/1|FAIL |1" "$(verdict "$bin" "$work/hdr.h265" "$ok_log" --expect-sdr)"
 check stock_log_on_hdr_sample "hdr-verify: FAIL hdr 2/4|FAIL PASS PASS FAIL |1" "$(verdict "$bin" "$work/hdr.h265" "$stock_log")"
 sed -n '2,$p' "$work/last.out"
+
+# Tap: dump without SEI plus a tap with it passes; the reverse and a tap
+# without SEI fail c3 alone.
+check tap_has_sei "hdr-verify: PASS hdr 4/4|PASS PASS PASS PASS |0" "$(verdict "$bin" "$work/hdr-nosei.h265" "$ok_log" --tap "$work/hdr.h265")"
+check dump_nosei_no_tap "hdr-verify: FAIL hdr 3/4|PASS PASS FAIL PASS |1" "$(verdict "$bin" "$work/hdr-nosei.h265" "$ok_log")"
+check tap_sei_removed "hdr-verify: FAIL hdr 3/4|PASS PASS FAIL PASS |1" "$(verdict "$bin" "$work/hdr.h265" "$ok_log" --tap "$work/hdr-nosei.h265")"
 
 # Mutation: flip one expected value in a copy of the driver; the matching
 # row must go red while the unmutated rows stay green.

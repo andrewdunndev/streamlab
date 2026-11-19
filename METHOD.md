@@ -119,8 +119,13 @@ observed value:
    `0x200`) and the client negotiated format `0x0200`.
 2. Stream: `ffprobe -show_streams` reads profile Main 10, `yuv420p10le`,
    `smpte2084`, `bt2020` primaries and `bt2020nc` matrix.
-3. In-band metadata: `ffprobe -show_frames` shows mastering display and
-   content light level side data, from the stream's SEI.
+3. In-band metadata: `ffprobe -show_frames` on the tap shows mastering display
+   and content light level side data, from the encoder's SEI. moonlight-common-c
+   drops prepended SEI NALs, so the dump never has them; `common-c-sei-tap.patch`
+   (applied by `client/hdr-dump/build.sh`) hands them to `hdr-dump --tap`, which
+   writes them ahead of each frame. This checks the encoder, not a real client:
+   Moonlight clients take HDR metadata from control message 0x010e, which is
+   criterion 4.
 4. Out-of-band metadata: the control stream carried 0x010e with enable set and
    non-zero metadata. This channel is independent of 3.
 

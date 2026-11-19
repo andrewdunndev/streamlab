@@ -400,7 +400,8 @@ PROBE_FRAMES=(-v error -f hevc -select_streams v:0 -show_frames -read_intervals 
 # then one row per criterion with the observed value. Returns 1 on any FAIL.
 #   c1 serverinfo offers HEVC Main10 and the client negotiated it (client log)
 #   c2 the stream is Main 10, yuv420p10le, PQ, BT.2020 (ffprobe streams)
-#   c3 mastering display and content light SEI in the frames (ffprobe frames)
+#   c3 mastering display and content light SEI in the encoder's stream: the
+#      tap, which keeps the SEI common-c drops (ffprobe frames)
 #   c4 the 0x010e HDR mode enable and non-zero metadata (client log)
 #   c5 with --expect-sdr, the stream is Main, 8-bit, BT.709 instead of c1-c4
 hdr_evaluate() { # log streams.json frames.json expect_sdr
@@ -471,7 +472,7 @@ hdr_evaluate() { # log streams.json frames.json expect_sdr
 
 cmd_hdr_verify() {
   local server='' saddr='' client='' app='' res=1920x1080 fps=60 bitrate=20000 secs=15
-  local sdr=0 dump='' log='' outdir=results/logs
+  local sdr=0 dump='' tap='' log='' outdir=results/logs
   while [ $# -gt 0 ]; do
     case $1 in
       --server) server=$2; shift 2 ;;
@@ -484,6 +485,7 @@ cmd_hdr_verify() {
       --secs) secs=$2; shift 2 ;;
       --expect-sdr) sdr=1; shift ;;
       --dump) dump=$2; shift 2 ;;
+      --tap) tap=$2; shift 2 ;;
       --log) log=$2; shift 2 ;;
       --out-dir) outdir=$2; shift 2 ;;
       *) die "hdr-verify: unknown option $1" ;;
@@ -502,7 +504,9 @@ cmd_hdr_verify() {
     [ -r "$dump" ] || die "hdr-verify: cannot read '$dump'"
     [ "$sdr" = 1 ] || [ -r "$log" ] || die "hdr-verify: --dump needs a readable --log"
     ffprobe "${PROBE_STREAMS[@]}" "$dump" >"$base.streams.json" || die "hdr-verify: ffprobe failed on $dump"
-    ffprobe "${PROBE_FRAMES[@]}" "$dump" >"$base.frames.json" || die "hdr-verify: ffprobe failed on $dump"
+    # c3 reads the tap when given: the dump has had its SEI dropped by common-c.
+    [ -z "$tap" ] || [ -r "$tap" ] || die "hdr-verify: cannot read '$tap'"
+    ffprobe "${PROBE_FRAMES[@]}" "${tap:-$dump}" >"$base.frames.json" || die "hdr-verify: ffprobe failed on ${tap:-$dump}"
   else
     [ -n "$server" ] && [ -n "$saddr" ] && [ -n "$client" ] && [ -n "$app" ] \
       || die "hdr-verify: --server, --server-addr, --client and --app are required (or --dump and --log)"
@@ -511,14 +515,14 @@ cmd_hdr_verify() {
     log=$base.log
     local hdrflag='--hdr'
     [ "$sdr" = 0 ] || hdrflag=''
-    remote "$client" "sudo -n mkdir -p $STATE_DIR/moonlight $STATE_DIR/hdr && sudo -n rm -f $STATE_DIR/hdr/dump.h265"
+    remote "$client" "sudo -n mkdir -p $STATE_DIR/moonlight $STATE_DIR/hdr && sudo -n rm -f $STATE_DIR/hdr/dump.h265 $STATE_DIR/hdr/tap.h265"
     remote "$client" "timeout -s TERM -k 15 $((secs + 120)) $(podman_base) -e XDG_CONFIG_HOME=/xdg \
       -v $STATE_DIR/moonlight:/xdg:Z -v $STATE_DIR/hdr:/out:Z --entrypoint hdr-dump \
-      $IMAGE $saddr '$app' --out /out/dump.h265 --secs $secs --res $res --fps $fps --bitrate $bitrate $hdrflag" \
+      $IMAGE $saddr '$app' --out /out/dump.h265 --tap /out/tap.h265 --secs $secs --res $res --fps $fps --bitrate $bitrate $hdrflag" \
       2>"$log" >/dev/null || echo "streamlab: hdr-dump exited non-zero; see $log" >&2
     local probe="sudo -n podman run --rm -v $STATE_DIR/hdr:/out:ro,Z --entrypoint ffprobe $IMAGE"
     remote "$client" "$probe $(printf "%q " "${PROBE_STREAMS[@]}") /out/dump.h265" >"$base.streams.json" 2>/dev/null || true
-    remote "$client" "$probe $(printf "%q " "${PROBE_FRAMES[@]}") /out/dump.h265" >"$base.frames.json" 2>/dev/null || true
+    remote "$client" "$probe $(printf "%q " "${PROBE_FRAMES[@]}") /out/tap.h265" >"$base.frames.json" 2>/dev/null || true
     remote "$client" "$(podman_base) -e QT_QPA_PLATFORM=offscreen -e XDG_CONFIG_HOME=/xdg \
       -v $STATE_DIR/moonlight:/xdg:Z $IMAGE quit $saddr" >/dev/null 2>&1 \
       || echo "streamlab: hdr-verify: quit on $server failed" >&2

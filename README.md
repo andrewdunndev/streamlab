@@ -23,7 +23,7 @@ Moonlight client for the other.
 - `client/Containerfile`: a pinned Fedora image with moonlight-qt built from source against
   RPM Fusion ffmpeg. The NVIDIA userspace is injected at run time through CDI.
 - `bin/streamlab`: a bash driver run from a workstation over ssh.
-- `client/hdr-dump/`: a headless HEVC dump client on moonlight-common-c, built into the client image; it records the received stream and logs the HDR signalling.
+- `client/hdr-dump/`: a headless HEVC dump client on moonlight-common-c, built into the client image; it records the received stream, plus a tap with the SEI common-c drops (`common-c-sei-tap.patch`), and logs the HDR signalling.
 - `scripts/assert-client.sh`: build-time checks for the client image.
 - `tests/`: parser tests against fixture logs, `streamlab run`, `streamlab hdr-verify` and `streamlab game` tests against stub hosts, and HDR grading tests on generated HEVC samples.
 - `results/`: result TSVs, committed per baseline.

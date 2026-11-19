@@ -8,6 +8,9 @@ src=$1
 out=$2
 here=$(cd "$(dirname "$0")" && pwd)
 rev=$(git -C "$src" rev-parse --short=7 HEAD)
+# The SEI tap: common-c drops prepended SEI NALs, so criterion 3 reads a copy
+# taken before they are dropped. The checkout is a throwaway build tree.
+git -C "$src" apply "$here/common-c-sei-tap.patch"
 obj=$(mktemp -d)
 trap 'rm -rf "$obj"' EXIT
 

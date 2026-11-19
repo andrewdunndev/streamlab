@@ -96,7 +96,7 @@ hdrv() { # ARGS...: hdr-verify against the stub host; the empty stub probes grad
 : >"$work/calls"
 hdrv
 check hdrv_rc 1 "$?"
-check hdrv_dump_hdr 1 "$(count "\\--entrypoint hdr-dump .* 'App' --out /out/dump.h265 --secs 3 .* --hdr")"
+check hdrv_dump_hdr 1 "$(count "\\--entrypoint hdr-dump .* 'App' --out /out/dump.h265 --tap /out/tap.h265 --secs 3 .* --hdr")"
 check hdrv_probes 2 "$(count '\--entrypoint ffprobe')"
 check hdrv_quit 1 "$(count ' quit ')"
 : >"$work/calls"
