@@ -141,3 +141,33 @@ check the matching row goes red.
 
 The dump client does not verify the server certificate; pairing already
 established trust, and the run is on a lab network.
+
+## Input simulation
+
+`input-sim/` drives virtual pads in a live Wolf session with no person at the controls and
+reads them back where an app would. `pad.py` runs on the Wolf host (socket `WOLF_SOCKET`,
+default `/run/wolf/wolf.sock`; `--session SID` when several sessions are live). `probe.py`
+runs inside the app container and prints one timestamped line per observed change.
+`input-sim/example-gyro.sh` is the shortest round trip.
+
+A pad is created by POSTing Moonlight input packets, hex-encoded, to
+`/api/v1/sessions/input`: a CONTROLLER_ARRIVAL with the pad type and a capability byte,
+then a MULTI_CONTROLLER whose slot bit is set. Wolf creates the uhid device and its
+evdev, joydev and hidraw nodes. What is injected:
+
+- arrival, rearrival and unplug, and the host nodes each one leaves behind;
+- buttons, by MULTI_CONTROLLER flags;
+- motion, gyro and accel, by CONTROLLER_MOTION in deg/s and m/s^2;
+- touch, by CONTROLLER_TOUCH on the pad's touchpad and TOUCH on the session's touch screen.
+
+Read back, per consumer: the hidraw input report bytes, the evdev nodes (buttons, motion
+sensors, touchpad slots by `EVIOCGMTSLOTS`), SDL2 (joystick enumeration, GUID and driver,
+mapping lookups, sensor data), and libudev enumeration and monitor as an app that starts
+before or after the plug sees it. Output reports go the other way: `probe.py out` writes
+rumble, lightbar and adaptive-trigger reports to the hidraw node, and the effect is observed
+as the callback Wolf fires for each, with timestamps compared against the write.
+
+Not shown: the bytes a Moonlight client puts on the wire, which are reproduced from the
+protocol rather than captured; a real pad's calibration, noise and feel; and real games,
+which may read a pad differently from these probes.
+
