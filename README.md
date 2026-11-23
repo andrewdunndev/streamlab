@@ -27,6 +27,7 @@ Moonlight client for the other.
 - `scripts/assert-client.sh`: build-time checks for the client image.
 - `tests/`: parser tests against fixture logs, `streamlab run`, `streamlab hdr-verify` and `streamlab game` tests against stub hosts, and HDR grading tests on generated HEVC samples.
 - `results/`: result TSVs, committed per baseline.
+- `input-sim/`: virtual pad injection and read-back; see [METHOD.md](METHOD.md#input-simulation).
 
 ## Use
 
