@@ -126,4 +126,4 @@ CI builds the client image with the `container-image` component from
 
 ## License
 
-[MIT](LICENSE). moonlight-qt and the RPM Fusion codecs carry their own licenses.
+[MIT](LICENSE) at the root. `client/` is [GPL-3.0](client/LICENSE) because it builds on Moonlight (moonlight-qt and moonlight-common-c), and the client image is distributed under it. The RPM Fusion codecs carry their own licenses.

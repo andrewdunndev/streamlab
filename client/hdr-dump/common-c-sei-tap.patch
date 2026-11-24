@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# A modification of moonlight-common-c, which is GPL-3.0.
 diff --git a/src/VideoDepacketizer.c b/src/VideoDepacketizer.c
 index 5baa1d5..b1dcdd4 100644
 --- a/src/VideoDepacketizer.c
