@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * hdr-dump: a headless Moonlight client that records the received video as
  * raw Annex-B HEVC and logs what the server negotiated and signalled. No

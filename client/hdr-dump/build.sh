@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Builds hdr-dump against the moonlight-common-c checkout that moonlight-qt
 # pins, with the same source list and defines as moonlight-qt's own build.
 # usage: build.sh COMMON_C_DIR OUTPUT
