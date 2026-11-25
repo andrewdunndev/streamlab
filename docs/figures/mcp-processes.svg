@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="736" viewBox="0 0 880 736" role="img" aria-labelledby="mcp-processes-title mcp-processes-desc" font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title id="mcp-processes-title">Processes and what crosses each boundary</title>
+<desc id="mcp-processes-desc">Four groups of processes, top to bottom. The caller's MCP client speaks MCP JSON-RPC on stdio to the MCP server, which sends one runner command per tool call to the runner; the licence of those two is not decided. The runner exchanges JSON lines on a pipe with the headless client, a single GPL-3 process holding nvhttp, moonlight-common-c and a software decoder. The client reaches Wolf over HTTP and HTTPS with the client certificate, and over RTSP, the encrypted control stream and RTP. Outside the GPL-3 boundary the runner also calls the Wolf API on a local unix socket and execs a reader inside the app container, which reads the virtual input devices Wolf creates there.</desc>
+<defs><marker id="mcp-processes-ink" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#404040"/></marker><marker id="mcp-processes-moss" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#4a6741"/></marker></defs>
+<g font-family="'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<rect x="0" y="0" width="880" height="736" fill="#ffffff"/>
+<rect x="20" y="20" width="840" height="696" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/>
+<!-- zones -->
+<rect x="200" y="36" width="256" height="92" rx="6" fill="#f4f4f4" stroke="#e0e0e0" stroke-width="1"/><text x="212" y="54" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" letter-spacing="0.08em" fill="#707070">CALLER</text>
+<rect x="36" y="176" width="808" height="108" rx="6" fill="#f4f4f4" stroke="#e0e0e0" stroke-width="1"/><text x="48" y="194" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" letter-spacing="0.08em" fill="#707070">MCP SERVER AND RUNNER · LICENCE NOT DECIDED</text>
+<rect x="36" y="340" width="572" height="108" rx="6" fill="#f1f3f0" stroke="#4a6741" stroke-width="1"/><text x="48" y="358" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" letter-spacing="0.08em" fill="#4a6741">HEADLESS CLIENT · GPL-3 · ONE PROCESS, ONE IDENTITY</text>
+<rect x="36" y="512" width="808" height="188" rx="6" fill="#f4f4f4" stroke="#e0e0e0" stroke-width="1"/><text x="48" y="530" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" letter-spacing="0.08em" fill="#707070">WOLF HOST</text>
+<!-- arrows -->
+<path d="M328,112 V204" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M428,236 H548" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M572,268 V368" fill="none" stroke="#4a6741" stroke-width="1.5" marker-end="url(#mcp-processes-moss)"/>
+<path d="M224,400 H184" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M302,432 V540" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M506,432 V540" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M660,268 V540" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M800,268 V636" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M624,564 H592" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M372,588 V636" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<path d="M664,660 H456" fill="none" stroke="#404040" stroke-width="1.5" marker-end="url(#mcp-processes-ink)"/>
+<!-- labels -->
+<rect x="336" y="146" width="121" height="16" fill="#ffffff"/>
+<text x="340" y="156" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">MCP JSON-RPC on stdio</text>
+<rect x="435" y="206" width="105" height="28" fill="#f4f4f4"/>
+<text x="488" y="216" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">one command</text>
+<text x="488" y="228" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">per tool call</text>
+<rect x="362" y="298" width="202" height="28" fill="#ffffff"/>
+<text x="560" y="308" text-anchor="end" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">JSON lines on a pipe: commands down,</text>
+<text x="560" y="320" text-anchor="end" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">results, events and image files up</text>
+<rect x="310" y="460" width="181" height="40" fill="#ffffff"/>
+<text x="314" y="470" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">RTSP; encrypted control stream</text>
+<text x="314" y="482" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">(input down, rumble and HDR up);</text>
+<text x="314" y="494" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">RTP video and audio</text>
+<rect x="514" y="466" width="127" height="28" fill="#ffffff"/>
+<text x="518" y="476" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">HTTP and HTTPS with</text>
+<text x="518" y="488" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">the client certificate</text>
+<rect x="668" y="306" width="94" height="64" fill="#ffffff"/>
+<text x="672" y="316" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">pair/pending and</text>
+<text x="672" y="328" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">pair/client</text>
+<text x="672" y="340" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">(PIN approval);</text>
+<text x="672" y="352" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">sessions/input</text>
+<text x="672" y="364" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">(API input path)</text>
+<rect x="676" y="402" width="116" height="28" fill="#ffffff"/>
+<text x="788" y="412" text-anchor="end" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">exec inside the</text>
+<text x="788" y="424" text-anchor="end" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">container, rows back</text>
+<rect x="380" y="606" width="132" height="16" fill="#f4f4f4"/>
+<text x="384" y="616" text-anchor="start" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">virtual input devices</text>
+<rect x="467" y="642" width="186" height="16" fill="#f4f4f4"/>
+<text x="560" y="652" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="#404040">evdev, hidraw, udev and SDL reads</text>
+<!-- nodes -->
+<rect x="228" y="64" width="200" height="48" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="328" y="86.5" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">MCP client</text><text x="328" y="99.5" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">agent, or the check runner</text>
+<rect x="228" y="204" width="200" height="64" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="328" y="234.5" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">MCP server</text><text x="328" y="247.5" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">tool schemas, timeouts, lease</text>
+<rect x="548" y="204" width="284" height="64" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="690" y="228" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">runner</text><text x="690" y="241" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">pairing approval, session bookkeeping,</text><text x="690" y="254" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">cleanup, result rows</text>
+<rect x="52" y="368" width="132" height="64" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="118" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">software decoder</text><text x="118" y="405" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">latest frame,</text><text x="118" y="418" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">frame ring, stats</text>
+<rect x="224" y="368" width="156" height="64" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="302" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">moonlight-common-c</text><text x="302" y="405" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">RTSP, control,</text><text x="302" y="418" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">video, audio</text>
+<rect x="420" y="368" width="172" height="64" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="506" y="392" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">nvhttp</text><text x="506" y="405" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">serverinfo, pair, applist,</text><text x="506" y="418" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">launch, resume, cancel</text>
+<rect x="224" y="540" width="368" height="48" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="408" y="569" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">Wolf</text>
+<rect x="624" y="540" width="136" height="48" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="692" y="562.5" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">Wolf API</text><text x="692" y="575.5" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">local unix socket</text>
+<rect x="288" y="636" width="168" height="48" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="372" y="658.5" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">app container</text><text x="372" y="671.5" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">virtual input devices</text>
+<rect x="664" y="636" width="168" height="48" rx="6" fill="#ffffff" stroke="#e0e0e0" stroke-width="1"/><text x="748" y="658.5" text-anchor="middle" font-size="13" font-weight="600" fill="#0a0a0a">reader</text><text x="748" y="671.5" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace" font-size="10" fill="#404040">inside the app container</text>
+</g>
+</svg>
